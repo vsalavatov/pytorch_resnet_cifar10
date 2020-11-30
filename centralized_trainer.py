@@ -220,6 +220,7 @@ def train(train_loader, model, criterion, optimizer, epoch, statistics):
     # switch to train mode
     model.train()
 
+    start = time.time()
     end = time.time()
     for i, (input, target) in enumerate(train_loader):
 
@@ -257,10 +258,10 @@ def train(train_loader, model, criterion, optimizer, epoch, statistics):
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                  'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
+                  'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\r'.format(
                       epoch, i, len(train_loader), batch_time=batch_time,
-                      data_time=data_time, loss=losses, top1=top1))
-
+                      data_time=data_time, loss=losses, top1=top1), end='')
+    print('\nEpoch took {:.2f} s.'.format(end - start))
     statistics.add('train_precision', top1.avg)
     statistics.add('train_loss', losses.avg)
 
@@ -306,11 +307,11 @@ def validate(val_loader, model, criterion):
                 print('Test: [{0}/{1}]\t'
                       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                       'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                      'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
+                      'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\r'.format(
                           i, len(val_loader), batch_time=batch_time, loss=losses,
-                          top1=top1))
+                          top1=top1), end='')
 
-    print(' * Prec@1 {top1.avg:.3f}'
+    print('\n * Prec@1 {top1.avg:.3f}'
           .format(top1=top1))
 
     return top1.avg
