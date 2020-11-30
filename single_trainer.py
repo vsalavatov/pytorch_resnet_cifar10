@@ -1,5 +1,5 @@
 '''
-This is a centralized version modification on trainer.py
+This is a single-model version modification on trainer.py
 '''
 
 import argparse
@@ -18,6 +18,8 @@ import torchvision.datasets as datasets
 import resnet
 
 import pickle
+
+from .statistics import Statistics
 
 model_names = sorted(name for name in resnet.__dict__
     if name.islower() and not name.startswith("__")
@@ -62,30 +64,6 @@ parser.add_argument('--save-every', dest='save_every',
 best_prec1 = 0
 
 
-class Statistics:
-    def __init__(self, token):
-        self.token = token
-        self.data = {}
-        self.epoch = None
-        self._first_epoch = None
-
-    def set_epoch(self, epoch):
-        self.epoch = epoch
-        if self._first_epoch is None:
-            self._first_epoch = epoch
-
-    def add(self, key, val):
-        if self.epoch not in self.data.keys():
-            self.data[self.epoch] = {}
-        self.data[self.epoch][key] = val
-
-    def crop(self, key):
-        if self.epoch is None:
-            return None
-        return [self.data.get(i, {}).get(key, None)
-                for i in range(self._first_epoch, self.epoch + 1)]
-
-
 def main():
     global args, best_prec1
     args = parser.parse_args()
@@ -99,7 +77,7 @@ def main():
     model = torch.nn.DataParallel(resnet.__dict__[args.arch]())
     model.cuda()
 
-    statistics = Statistics('Centralized')
+    statistics = Statistics('Single model')
 
     # optionally resume from a checkpoint
     if args.resume:
