@@ -24,8 +24,6 @@ model_names = sorted(name for name in resnet.__dict__
                      and name.startswith("resnet")
                      and callable(resnet.__dict__[name]))
 
-print(model_names)
-
 parser = argparse.ArgumentParser(description='Propert ResNets for CIFAR10 in pytorch')
 parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet20',
                     choices=model_names,
@@ -181,7 +179,7 @@ def main():
         # train for one epoch
         print('current lr {:.5e}'.format(optimizer.param_groups[0]['lr']))
         statistics.add('train_begin_timestamp', time.time())
-        train(train_loader, model, criterion, optimizer, epoch)
+        train(train_loader, model, criterion, optimizer, epoch, statistics)
         lr_scheduler.step()
         statistics.add('train_end_timestamp', time.time())
 
