@@ -17,6 +17,8 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import resnet
 
+import pickle
+
 model_names = sorted(name for name in resnet.__dict__
     if name.islower() and not name.startswith("__")
                      and name.startswith("resnet")
@@ -58,8 +60,32 @@ parser.add_argument('--save-dir', dest='save_dir',
                     default='save_temp', type=str)
 parser.add_argument('--save-every', dest='save_every',
                     help='Saves checkpoints at every specified number of epochs',
-                    type=int, default=5)
+                    type=int, default=10)
 best_prec1 = 0
+
+
+class Statistics:
+    def __init__(self, token):
+        self.token = token
+        self.data = {}
+        self.epoch = None
+        self._first_epoch = None
+
+    def set_epoch(self, epoch):
+        self.epoch = epoch
+        if self._first_epoch is None:
+            self._first_epoch = epoch
+
+    def add(self, key, val):
+        if self.epoch not in self.data.keys():
+            self.data[self.epoch] = {}
+        self.data[self.epoch][key] = val
+
+    def crop(self, key):
+        if self.epoch is None:
+            return None
+        return [self.data.get(i, {}).get(key, None)
+                for i in range(self._first_epoch, self.epoch + 1)]
 
 
 def main():
@@ -75,6 +101,8 @@ def main():
     model = torch.nn.DataParallel(resnet.__dict__[args.arch]())
     model.cuda()
 
+    statistics = Statistics('Centralized')
+
     # optionally resume from a checkpoint
     if args.resume:
         if os.path.isfile(args.resume):
@@ -82,6 +110,8 @@ def main():
             checkpoint = torch.load(args.resume)
             args.start_epoch = checkpoint['epoch']
             best_prec1 = checkpoint['best_prec1']
+            if 'statistics' in checkpoint.keys():
+                statistics = pickle.loads(checkpoint['statistics'])
             model.load_state_dict(checkpoint['state_dict'])
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.evaluate, checkpoint['epoch']))
@@ -132,6 +162,9 @@ def main():
 
     lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_schedule)
 
+    if args.arch != 'resnet20':
+        print('This code was not intended to be used on resnets other than resnet20')
+
     if args.arch in ['resnet1202', 'resnet110']:
         # for resnet1202 original paper uses lr=0.01 for first 400 minibatches for warm-up
         # then switch back. In this setup it will correspond for first epoch.
@@ -144,14 +177,19 @@ def main():
         return
 
     for epoch in range(args.start_epoch, args.epochs):
-
+        statistics.set_epoch(epoch)
         # train for one epoch
         print('current lr {:.5e}'.format(optimizer.param_groups[0]['lr']))
+        statistics.add('train_begin_timestamp', time.time())
         train(train_loader, model, criterion, optimizer, epoch)
         lr_scheduler.step()
+        statistics.add('train_end_timestamp', time.time())
 
         # evaluate on validation set
+        statistics.add('validate_begin_timestamp', time.time())
         prec1 = validate(val_loader, model, criterion)
+        statistics.add('validate_end_timestamp', time.time())
+        statistics.add('val_precision', prec1)
 
         # remember best prec@1 and save checkpoint
         is_best = prec1 > best_prec1
@@ -162,15 +200,17 @@ def main():
                 'epoch': epoch + 1,
                 'state_dict': model.state_dict(),
                 'best_prec1': best_prec1,
+                'statistics': pickle.dumps(statistics)
             }, is_best, filename=os.path.join(args.save_dir, 'checkpoint.th'))
 
         save_checkpoint({
             'state_dict': model.state_dict(),
             'best_prec1': best_prec1,
+            'statistics': pickle.dumps(statistics)
         }, is_best, filename=os.path.join(args.save_dir, 'model.th'))
 
 
-def train(train_loader, model, criterion, optimizer, epoch):
+def train(train_loader, model, criterion, optimizer, epoch, statistics):
     """
         Run one train epoch
     """
@@ -222,6 +262,9 @@ def train(train_loader, model, criterion, optimizer, epoch):
                   'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
                       epoch, i, len(train_loader), batch_time=batch_time,
                       data_time=data_time, loss=losses, top1=top1))
+
+    statistics.add('train_precision', top1.avg)
+    statistics.add('train_loss', losses.avg)
 
 
 def validate(val_loader, model, criterion):
