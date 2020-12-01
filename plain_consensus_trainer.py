@@ -39,13 +39,14 @@ parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet20',
                          ' (default: resnet20)')
 
 # Arguments for consensus:
-parser.add_argument('--agent-token', '-t', required=True, type=str)
-parser.add_argument('--agent-host', required=True, default='0.0.0.0', type=str)
+parser.add_argument('--agent-token', '-t', required=True, type=int)
+parser.add_argument('--agent-host', default='127.0.0.1', type=str)
 parser.add_argument('--agent-port', required=True, type=int)
 parser.add_argument('--init-leader', dest='init_leader', action='store_true')
-parser.add_argument('--master-host', required=True, default='0.0.0.0', type=str)
+parser.add_argument('--master-host', default='127.0.0.1', type=str)
 parser.add_argument('--master-port', required=True, type=int)
-# parser.add_argument('--total-agents', required=True, type=int)
+parser.add_argument('--enable-log', dest='logging', action='store_true')
+parser.add_argument('--total-agents', required=True, type=int)
 
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
@@ -80,20 +81,21 @@ parser.add_argument('--save-every', dest='save_every',
 best_prec1 = 0
 
 
-def main():
+async def main():
     global args, best_prec1
     args = parser.parse_args()
 
     torch.manual_seed(239)
 
     print('Consensus agent: {}'.format(args.agent_token))
-    convergence_eps = 1e-9
+    convergence_eps = 1e-0
     agent = ConsensusAgent(args.agent_token, args.agent_host, args.agent_port, args.master_host, args.master_port,
-                           convergence_eps=convergence_eps)
+                           convergence_eps=convergence_eps, debug=True)
     agent_serve_task = asyncio.create_task(agent.serve_forever())
+    print('{}: Created serving task'.format(args.agent_token))
 
     # Check the save_dir exists or not
-    args.save_dir = os.path.join(args.save_dir, args.agent_token)
+    args.save_dir = os.path.join(args.save_dir, str(args.agent_token))
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
 
@@ -105,24 +107,28 @@ def main():
     # optionally resume from a checkpoint
     if args.resume:
         if os.path.isfile(args.resume):
-            print("=> loading checkpoint '{}'".format(args.resume))
+            if args.logging:
+                print("=> loading checkpoint '{}'".format(args.resume))
             checkpoint = torch.load(args.resume)
             args.start_epoch = checkpoint['epoch']
             best_prec1 = checkpoint['best_prec1']
             if 'statistics' in checkpoint.keys():
                 statistics = pickle.loads(checkpoint['statistics'])
             model.load_state_dict(checkpoint['state_dict'])
-            print("=> loaded checkpoint '{}' (epoch {})"
+            if args.logging:
+                print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.evaluate, checkpoint['epoch']))
         else:
-            print("=> no checkpoint found at '{}'".format(args.resume))
+            if args.logging:
+                print("=> no checkpoint found at '{}'".format(args.resume))
 
     cudnn.benchmark = True
 
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
 
-    train_dataset = datasets.CIFAR10(root='./data', train=True, transform=transforms.Compose([
+    dataset_path = os.path.join('./data/', str(args.agent_token))
+    train_dataset = datasets.CIFAR10(root=dataset_path, train=True, transform=transforms.Compose([
         transforms.RandomHorizontalFlip(),
         transforms.RandomCrop(32, 4),
         transforms.ToTensor(),
@@ -142,7 +148,7 @@ def main():
     )
 
     val_loader = torch.utils.data.DataLoader(
-        datasets.CIFAR10(root='./data', train=False, transform=transforms.Compose([
+        datasets.CIFAR10(root=dataset_path, train=False, transform=transforms.Compose([
             transforms.ToTensor(),
             normalize,
         ])),
@@ -184,35 +190,40 @@ def main():
         return
 
     def dump_params(model):
-        return torch.cat([v.view(-1) for k, v in model.state_dict().items()]).numpy()
+        return torch.cat([v.to(torch.float32).view(-1) for k, v in model.state_dict().items()]).cpu().numpy()
 
     def load_params(model, params):
         st = model.state_dict()
         used_params = 0
         for k in st.keys():
             cnt_params = st[k].numel()
-            st[k] = torch.Tensor(params[used_params:used_params + cnt_params]).view(st[k].shape)
+            st[k] = torch.Tensor(params[used_params:used_params + cnt_params]).view(st[k].shape)\
+                .to(st[k].dtype).to(st[k].device)
             used_params += cnt_params
         model.load_state_dict(st)
 
-    def run_averaging(weight: float = len(train_loader)):
-        params = dump_params(model.state_dict())
+    async def run_averaging(weight: float = len(train_loader)):
+        params = dump_params(model)
+        print('run_round {} {}'.format(params.shape, weight))
         params = await agent.run_round(params, weight)
         load_params(model, params)
 
-    run_averaging(1.0 if args.init_leader else 0.0)
+    if args.logging:
+        print('Starting initial averaging...')
+    await run_averaging(1.0 if args.init_leader else 0.0)
 
     for epoch in range(args.start_epoch, args.epochs):
         statistics.set_epoch(epoch)
         # train for one epoch
-        print('current lr {:.5e}'.format(optimizer.param_groups[0]['lr']))
+        if args.logging:
+            print('current lr {:.5e}'.format(optimizer.param_groups[0]['lr']))
         statistics.add('train_begin_timestamp', time.time())
         train(train_loader, model, criterion, optimizer, epoch, statistics)
         lr_scheduler.step()
         statistics.add('train_end_timestamp', time.time())
 
         statistics.add('consensus_begin_timestamp', time.time())
-        run_averaging()
+        await run_averaging()
         statistics.add('consensus_end_timestamp', time.time())
 
         # evaluate on validation set
@@ -286,14 +297,16 @@ def train(train_loader, model, criterion, optimizer, epoch, statistics):
         end = time.time()
 
         if i % args.print_freq == 0:
-            print('\rEpoch: [{0}][{1}/{2}]\t'
+            if args.logging:
+                print('\rEpoch: [{0}][{1}/{2}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                   'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
                 epoch, i, len(train_loader), batch_time=batch_time,
                 data_time=data_time, loss=losses, top1=top1), end='')
-    print('\nEpoch took {:.2f} s.'.format(end - start))
+    if args.logging:
+        print('\nEpoch took {:.2f} s.'.format(end - start))
     statistics.add('train_precision', top1.avg)
     statistics.add('train_loss', losses.avg)
 
@@ -336,14 +349,16 @@ def validate(val_loader, model, criterion):
             end = time.time()
 
             if i % args.print_freq == 0:
-                print('\rTest: [{0}/{1}]\t'
+                if args.logging:
+                    print('\rTest: [{0}/{1}]\t'
                       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                       'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                       'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
                     i, len(val_loader), batch_time=batch_time, loss=losses,
                     top1=top1), end='')
 
-    print('\n * Prec@1 {top1.avg:.3f}'
+    if args.logging:
+        print('\n * Prec@1 {top1.avg:.3f}'
           .format(top1=top1))
 
     return top1.avg
@@ -392,4 +407,4 @@ def accuracy(output, target, topk=(1,)):
 
 
 if __name__ == '__main__':
-    main()
+    asyncio.get_event_loop().run_until_complete(main())
