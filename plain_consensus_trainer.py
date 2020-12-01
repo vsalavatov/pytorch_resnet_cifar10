@@ -88,9 +88,9 @@ async def main():
     torch.manual_seed(239)
 
     print('Consensus agent: {}'.format(args.agent_token))
-    convergence_eps = 1e-0
+    convergence_eps = 1e-8
     agent = ConsensusAgent(args.agent_token, args.agent_host, args.agent_port, args.master_host, args.master_port,
-                           convergence_eps=convergence_eps, debug=True)
+                           convergence_eps=convergence_eps)
     agent_serve_task = asyncio.create_task(agent.serve_forever())
     print('{}: Created serving task'.format(args.agent_token))
 
