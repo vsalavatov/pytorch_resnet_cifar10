@@ -19,7 +19,7 @@ import resnet
 
 import pickle
 
-from statistics import Statistics
+from model_statistics import Statistics
 
 model_names = sorted(name for name in resnet.__dict__
     if name.islower() and not name.startswith("__")

@@ -24,7 +24,7 @@ import sys
 
 sys.path.append('./distributed-learning/')
 
-from statistics import Statistics
+from model_statistics import Statistics
 from utils.consensus_tcp import ConsensusAgent
 
 model_names = sorted(name for name in resnet.__dict__
@@ -47,6 +47,7 @@ parser.add_argument('--master-host', default='127.0.0.1', type=str)
 parser.add_argument('--master-port', required=True, type=int)
 parser.add_argument('--enable-log', dest='logging', action='store_true')
 parser.add_argument('--total-agents', required=True, type=int)
+parser.add_argument('--debug-consensus', dest='debug', action='store_true')
 
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
@@ -88,9 +89,9 @@ async def main():
     torch.manual_seed(239)
 
     print('Consensus agent: {}'.format(args.agent_token))
-    convergence_eps = 1e-8
+    convergence_eps = 1e-4
     agent = ConsensusAgent(args.agent_token, args.agent_host, args.agent_port, args.master_host, args.master_port,
-                           convergence_eps=convergence_eps)
+                           convergence_eps=convergence_eps, debug=True if args.debug else False)
     agent_serve_task = asyncio.create_task(agent.serve_forever())
     print('{}: Created serving task'.format(args.agent_token))
 
@@ -204,7 +205,6 @@ async def main():
 
     async def run_averaging(weight: float = len(train_loader)):
         params = dump_params(model)
-        print('run_round {} {}'.format(params.shape, weight))
         params = await agent.run_round(params, weight)
         load_params(model, params)
 
