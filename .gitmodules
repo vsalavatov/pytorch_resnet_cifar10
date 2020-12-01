@@ -1,0 +1,4 @@
+[submodule "distributed-learning"]
+	path = distributed-learning
+	url = https://github.com/vsalavatov/distributed-learning.git
+	branch = tcp-consensus

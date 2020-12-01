@@ -1,2 +1,2 @@
 torchvision
-pickle
+pickle5

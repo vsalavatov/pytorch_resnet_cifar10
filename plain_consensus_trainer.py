@@ -1,5 +1,5 @@
 '''
-This is a single-model version modification on trainer.py
+This is a plain consensus version modification on trainer.py
 '''
 
 import argparse
@@ -18,19 +18,35 @@ import torchvision.datasets as datasets
 import resnet
 
 import pickle
+import asyncio
+
+import sys
+
+sys.path.append('./distributed-learning/')
 
 from statistics import Statistics
+from utils.consensus_tcp import ConsensusAgent
 
 model_names = sorted(name for name in resnet.__dict__
-    if name.islower() and not name.startswith("__")
+                     if name.islower() and not name.startswith("__")
                      and name.startswith("resnet")
                      and callable(resnet.__dict__[name]))
 
-parser = argparse.ArgumentParser(description='Propert ResNets for CIFAR10 in pytorch')
+parser = argparse.ArgumentParser(description='Proper ResNets for CIFAR10 in pytorch')
 parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet20',
                     choices=model_names,
                     help='model architecture: ' + ' | '.join(model_names) +
-                    ' (default: resnet20)')
+                         ' (default: resnet20)')
+
+# Arguments for consensus:
+parser.add_argument('--agent-token', '-t', required=True, type=str)
+parser.add_argument('--agent-host', required=True, default='0.0.0.0', type=str)
+parser.add_argument('--agent-port', required=True, type=int)
+parser.add_argument('--init-leader', dest='init_leader', action='store_true')
+parser.add_argument('--master-host', required=True, default='0.0.0.0', type=str)
+parser.add_argument('--master-port', required=True, type=int)
+# parser.add_argument('--total-agents', required=True, type=int)
+
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 parser.add_argument('--epochs', default=200, type=int, metavar='N',
@@ -70,14 +86,21 @@ def main():
 
     torch.manual_seed(239)
 
+    print('Consensus agent: {}'.format(args.agent_token))
+    convergence_eps = 1e-9
+    agent = ConsensusAgent(args.agent_token, args.agent_host, args.agent_port, args.master_host, args.master_port,
+                           convergence_eps=convergence_eps)
+    agent_serve_task = asyncio.create_task(agent.serve_forever())
+
     # Check the save_dir exists or not
+    args.save_dir = os.path.join(args.save_dir, args.agent_token)
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
 
     model = torch.nn.DataParallel(resnet.__dict__[args.arch]())
     model.cuda()
 
-    statistics = Statistics('Single model')
+    statistics = Statistics(args.agent_token)
 
     # optionally resume from a checkpoint
     if args.resume:
@@ -99,15 +122,24 @@ def main():
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
 
+    train_dataset = datasets.CIFAR10(root='./data', train=True, transform=transforms.Compose([
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomCrop(32, 4),
+        transforms.ToTensor(),
+        normalize,
+    ]), download=True)
+
+    size_per_agent = len(train_dataset) // args.total_agents
+    train_indices = list(
+        range(args.agent_token * size_per_agent, min(len(train_dataset), (args.agent_token + 1) * size_per_agent)))
+
+    from torch.utils.data.sampler import SubsetRandomSampler
     train_loader = torch.utils.data.DataLoader(
-        datasets.CIFAR10(root='./data', train=True, transform=transforms.Compose([
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomCrop(32, 4),
-            transforms.ToTensor(),
-            normalize,
-        ]), download=True),
-        batch_size=args.batch_size, shuffle=True,
-        num_workers=args.workers, pin_memory=True)
+        train_dataset,
+        batch_size=args.batch_size, shuffle=False,  # !!!!!
+        num_workers=args.workers, pin_memory=True,
+        sampler=SubsetRandomSampler(train_indices)
+    )
 
     val_loader = torch.utils.data.DataLoader(
         datasets.CIFAR10(root='./data', train=False, transform=transforms.Compose([
@@ -145,12 +177,30 @@ def main():
         # for resnet1202 original paper uses lr=0.01 for first 400 minibatches for warm-up
         # then switch back. In this setup it will correspond for first epoch.
         for param_group in optimizer.param_groups:
-            param_group['lr'] = args.lr*0.1
-
+            param_group['lr'] = args.lr * 0.1
 
     if args.evaluate:
         validate(val_loader, model, criterion)
         return
+
+    def dump_params(model):
+        return torch.cat([v.view(-1) for k, v in model.state_dict().items()]).numpy()
+
+    def load_params(model, params):
+        st = model.state_dict()
+        used_params = 0
+        for k in st.keys():
+            cnt_params = st[k].numel()
+            st[k] = torch.Tensor(params[used_params:used_params + cnt_params]).view(st[k].shape)
+            used_params += cnt_params
+        model.load_state_dict(st)
+
+    def run_averaging(weight: float = len(train_loader)):
+        params = dump_params(model.state_dict())
+        params = await agent.run_round(params, weight)
+        load_params(model, params)
+
+    run_averaging(1.0 if args.init_leader else 0.0)
 
     for epoch in range(args.start_epoch, args.epochs):
         statistics.set_epoch(epoch)
@@ -160,6 +210,10 @@ def main():
         train(train_loader, model, criterion, optimizer, epoch, statistics)
         lr_scheduler.step()
         statistics.add('train_end_timestamp', time.time())
+
+        statistics.add('consensus_begin_timestamp', time.time())
+        run_averaging()
+        statistics.add('consensus_end_timestamp', time.time())
 
         # evaluate on validation set
         statistics.add('validate_begin_timestamp', time.time())
@@ -237,8 +291,8 @@ def train(train_loader, model, criterion, optimizer, epoch, statistics):
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                   'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
-                      epoch, i, len(train_loader), batch_time=batch_time,
-                      data_time=data_time, loss=losses, top1=top1), end='')
+                epoch, i, len(train_loader), batch_time=batch_time,
+                data_time=data_time, loss=losses, top1=top1), end='')
     print('\nEpoch took {:.2f} s.'.format(end - start))
     statistics.add('train_precision', top1.avg)
     statistics.add('train_loss', losses.avg)
@@ -286,13 +340,14 @@ def validate(val_loader, model, criterion):
                       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                       'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                       'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
-                          i, len(val_loader), batch_time=batch_time, loss=losses,
-                          top1=top1), end='')
+                    i, len(val_loader), batch_time=batch_time, loss=losses,
+                    top1=top1), end='')
 
     print('\n * Prec@1 {top1.avg:.3f}'
           .format(top1=top1))
 
     return top1.avg
+
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     """
@@ -300,8 +355,10 @@ def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     """
     torch.save(state, filename)
 
+
 class AverageMeter(object):
     """Computes and stores the average and current value"""
+
     def __init__(self):
         self.reset()
 
