@@ -34,6 +34,7 @@ parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet20',
                     choices=model_names,
                     help='model architecture: ' + ' | '.join(model_names) +
                          ' (default: resnet20)')
+parser.add_argument('--target-split', dest='target_split', action='store_true')
 
 # Arguments for consensus:
 parser.add_argument('--agent-token', '-t', required=True, type=int)
@@ -86,7 +87,7 @@ async def main():
     torch.manual_seed(239)
 
     print('Consensus agent: {}'.format(args.agent_token))
-    convergence_eps = 1e-6
+    convergence_eps = 1e-4
     agent = ConsensusAgent(args.agent_token, args.agent_host, args.agent_port, args.master_host, args.master_port,
                            convergence_eps=convergence_eps, debug=True if args.debug else False)
     agent_serve_task = asyncio.create_task(agent.serve_forever())
@@ -136,6 +137,10 @@ async def main():
     size_per_agent = len(train_dataset) // args.total_agents
     train_indices = list(
         range(args.agent_token * size_per_agent, min(len(train_dataset), (args.agent_token + 1) * size_per_agent)))
+
+    if args.target_split:
+        train_indices = list(range(len(train_dataset)))[train_dataset.targets == args.agent_token]
+        print('Target split: {} samples for agent {}'.format(len(train_indices), args.agent_token))
 
     from torch.utils.data.sampler import SubsetRandomSampler
     train_loader = torch.utils.data.DataLoader(

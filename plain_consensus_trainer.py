@@ -45,6 +45,7 @@ parser.add_argument('--master-port', required=True, type=int)
 parser.add_argument('--enable-log', dest='logging', action='store_true')
 parser.add_argument('--total-agents', required=True, type=int)
 parser.add_argument('--debug-consensus', dest='debug', action='store_true')
+parser.add_argument('--target-split', dest='target_split', action='store_true')
 
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
@@ -136,6 +137,10 @@ async def main():
     size_per_agent = len(train_dataset) // args.total_agents
     train_indices = list(
         range(args.agent_token * size_per_agent, min(len(train_dataset), (args.agent_token + 1) * size_per_agent)))
+
+    if args.target_split:
+        train_indices = list(range(len(train_dataset)))[train_dataset.targets == args.agent_token]
+        print('Target split: {} samples for agent {}'.format(len(train_indices), args.agent_token))
 
     from torch.utils.data.sampler import SubsetRandomSampler
     train_loader = torch.utils.data.DataLoader(
