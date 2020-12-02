@@ -86,7 +86,7 @@ async def main():
     torch.manual_seed(239)
 
     print('Consensus agent: {}'.format(args.agent_token))
-    convergence_eps = 1e-4
+    convergence_eps = 1e-6
     agent = ConsensusAgent(args.agent_token, args.agent_host, args.agent_port, args.master_host, args.master_port,
                            convergence_eps=convergence_eps, debug=True if args.debug else False)
     agent_serve_task = asyncio.create_task(agent.serve_forever())
@@ -165,7 +165,7 @@ async def main():
                                 weight_decay=args.weight_decay)
 
     def lr_schedule(epoch):
-        factor = 1
+        factor = args.total_agents
         if epoch >= 81:
             factor /= 10
         if epoch >= 122:
