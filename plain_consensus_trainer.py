@@ -21,7 +21,7 @@ import torchvision.transforms as transforms
 
 sys.path.append('./distributed-learning/')
 
-from model_statistics import Statistics
+from model_statistics import ModelStatistics
 from utils.consensus_tcp import ConsensusAgent
 
 model_names = sorted(name for name in resnet.__dict__
@@ -101,7 +101,7 @@ async def main():
     model = torch.nn.DataParallel(resnet.__dict__[args.arch]())
     model.cuda()
 
-    statistics = Statistics(args.agent_token)
+    statistics = ModelStatistics(args.agent_token)
 
     # optionally resume from a checkpoint
     if args.resume:
@@ -113,6 +113,8 @@ async def main():
             best_prec1 = checkpoint['best_prec1']
             if 'statistics' in checkpoint.keys():
                 statistics = pickle.loads(checkpoint['statistics'])
+            elif os.path.isfile(os.path.join(args.resume, 'statistics.pickle')):
+                statistics = ModelStatistics.load_from_file(os.path.join(args.resume, 'statistics.pickle'))
             model.load_state_dict(checkpoint['state_dict'])
             if args.logging:
                 print("=> loaded checkpoint '{}' (epoch {})"
@@ -205,14 +207,17 @@ async def main():
             used_params += cnt_params
         model.load_state_dict(st)
 
-    async def run_averaging(weight: float = len(train_loader)):
+    async def run_averaging():
         params = dump_params(model)
-        params = await agent.run_round(params, weight)
+        params = await agent.run_once(params)
         load_params(model, params)
 
     if args.logging:
         print('Starting initial averaging...')
-    await run_averaging(1.0 if args.init_leader else 0.0)
+
+    params = dump_params(model)
+    params = await agent.run_round(params, 1.0 if args.init_leader else 0.0)
+    load_params(model, params)
 
     for epoch in range(args.start_epoch, args.epochs):
         statistics.set_epoch(epoch)
@@ -220,13 +225,9 @@ async def main():
         if args.logging:
             print('current lr {:.5e}'.format(optimizer.param_groups[0]['lr']))
         statistics.add('train_begin_timestamp', time.time())
-        train(train_loader, model, criterion, optimizer, epoch, statistics)
+        await train(train_loader, model, criterion, optimizer, epoch, statistics, run_averaging)
         lr_scheduler.step()
         statistics.add('train_end_timestamp', time.time())
-
-        statistics.add('consensus_begin_timestamp', time.time())
-        await run_averaging()
-        statistics.add('consensus_end_timestamp', time.time())
 
         # evaluate on validation set
         statistics.add('validate_begin_timestamp', time.time())
@@ -249,11 +250,11 @@ async def main():
         save_checkpoint({
             'state_dict': model.state_dict(),
             'best_prec1': best_prec1,
-            'statistics': pickle.dumps(statistics)
         }, is_best, filename=os.path.join(args.save_dir, 'model.th'))
+        statistics.dump_to_file(os.path.join(args.save_dir, 'statistics.pickle'))
 
 
-def train(train_loader, model, criterion, optimizer, epoch, statistics):
+async def train(train_loader, model, criterion, optimizer, epoch, statistics, run_averaging):
     """
         Run one train epoch
     """
@@ -286,6 +287,9 @@ def train(train_loader, model, criterion, optimizer, epoch, statistics):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+
+        # average model
+        await run_averaging()
 
         output = output.float()
         loss = loss.float()
