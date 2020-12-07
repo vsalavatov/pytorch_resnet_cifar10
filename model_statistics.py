@@ -1,4 +1,6 @@
-class Statistics:
+import pickle
+
+class ModelStatistics:
     def __init__(self, token):
         self.token = token
         self.data = {}
@@ -20,3 +22,12 @@ class Statistics:
             return None
         return [self.data.get(i, {}).get(key, None)
                 for i in range(self._first_epoch, self.epoch + 1)]
+
+    def dump_to_file(self, path):
+        with open(path, 'wb') as f:
+            f.write(pickle.dumps(self))
+
+    @staticmethod
+    def load_from_file(path):
+        with open(path, 'wr') as f:
+            return pickle.loads(f.read())

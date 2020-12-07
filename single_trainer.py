@@ -19,14 +19,14 @@ import resnet
 
 import pickle
 
-from model_statistics import Statistics
+from model_statistics import ModelStatistics
 
 model_names = sorted(name for name in resnet.__dict__
     if name.islower() and not name.startswith("__")
                      and name.startswith("resnet")
                      and callable(resnet.__dict__[name]))
 
-parser = argparse.ArgumentParser(description='Propert ResNets for CIFAR10 in pytorch')
+parser = argparse.ArgumentParser(description='Proper ResNets for CIFAR10 in pytorch')
 parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet20',
                     choices=model_names,
                     help='model architecture: ' + ' | '.join(model_names) +
@@ -77,7 +77,7 @@ def main():
     model = torch.nn.DataParallel(resnet.__dict__[args.arch]())
     model.cuda()
 
-    statistics = Statistics('Single model')
+    statistics = ModelStatistics('Single model')
 
     # optionally resume from a checkpoint
     if args.resume:
@@ -88,6 +88,8 @@ def main():
             best_prec1 = checkpoint['best_prec1']
             if 'statistics' in checkpoint.keys():
                 statistics = pickle.loads(checkpoint['statistics'])
+            elif os.path.isfile(os.path.join(args.resume, 'statistics.pickle')):
+                statistics = ModelStatistics.load_from_file(os.path.join(args.resume, 'statistics.pickle'))
             model.load_state_dict(checkpoint['state_dict'])
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.evaluate, checkpoint['epoch']))
@@ -181,9 +183,9 @@ def main():
 
         save_checkpoint({
             'state_dict': model.state_dict(),
-            'best_prec1': best_prec1,
-            'statistics': pickle.dumps(statistics)
+            'best_prec1': best_prec1
         }, is_best, filename=os.path.join(args.save_dir, 'model.th'))
+        statistics.dump_to_file(os.path.join(args.save_dir, 'statistics.pickle'))
 
 
 def train(train_loader, model, criterion, optimizer, epoch, statistics):
