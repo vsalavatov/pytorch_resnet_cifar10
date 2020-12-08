@@ -29,5 +29,5 @@ class ModelStatistics:
 
     @staticmethod
     def load_from_file(path):
-        with open(path, 'wr') as f:
+        with open(path, 'rb') as f:
             return pickle.loads(f.read())
