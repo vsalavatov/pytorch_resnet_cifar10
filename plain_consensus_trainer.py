@@ -219,6 +219,9 @@ async def main():
     params = await agent.run_round(params, 1.0 if args.init_leader else 0.0)
     load_params(model, params)
 
+    if args.logging:
+        print('Initial averaging completed!')
+
     for epoch in range(args.start_epoch, args.epochs):
         statistics.set_epoch(epoch)
         # train for one epoch
