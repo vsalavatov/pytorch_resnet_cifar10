@@ -46,6 +46,7 @@ parser.add_argument('--enable-log', dest='logging', action='store_true')
 parser.add_argument('--total-agents', required=True, type=int)
 parser.add_argument('--debug-consensus', dest='debug', action='store_true')
 parser.add_argument('--target-split', dest='target_split', action='store_true')
+parser.add_argument('--consensus-freq', dest='consensus_frequency', type=int, default=1)
 
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
@@ -208,9 +209,12 @@ async def main():
         model.load_state_dict(st)
 
     async def run_averaging():
-        params = dump_params(model)
-        params = await agent.run_once(params)
-        load_params(model, params)
+        if run_averaging.executions_count % args.consensus_frequency == 0:
+            params = dump_params(model)
+            params = await agent.run_once(params)
+            load_params(model, params)
+        run_averaging.executions_count += 1
+    run_averaging.executions_count = 0
 
     if args.logging:
         print('Starting initial averaging...')
