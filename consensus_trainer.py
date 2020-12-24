@@ -47,7 +47,9 @@ def make_config_parser():
     parser.add_argument('--total-agents', required=True, type=int)
     parser.add_argument('--debug-consensus', dest='debug', action='store_true')
     parser.add_argument('--use-prepared-data', dest='data_prepared', action='store_true')
-    parser.add_argument('--consensus-freq', dest='consensus_frequency', type=int, default=1)
+    parser.add_argument('--consensus-freq', dest='consensus_frequency', type=int, default=1,
+                        help='freq>0 -> do averaging <freq> times per batch, '
+                             'freq<0 -> do averaging once per (-freq) batches')
     parser.add_argument('--no-validation', dest='no_validation', action='store_true')
     parser.add_argument('--use-lsr', dest='use_lsr', action='store_true')
 
@@ -213,9 +215,15 @@ async def main(cfg):
         model.load_state_dict(st)
 
     async def run_averaging():
-        if run_averaging.executions_count % cfg.consensus_frequency == 0:
+        if cfg.consensus_frequency < 0:
+            if run_averaging.executions_count % (-cfg.consensus_frequency) == 0:
+                params = dump_params(model)
+                params = await agent.run_once(params)
+                load_params(model, params)
+        else:
             params = dump_params(model)
-            params = await agent.run_once(params)
+            for _ in range(cfg.consensus_frequency):
+                params = await agent.run_once(params)
             load_params(model, params)
         run_averaging.executions_count += 1
     run_averaging.executions_count = 0
