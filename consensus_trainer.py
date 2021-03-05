@@ -50,6 +50,8 @@ def make_config_parser():
     parser.add_argument('--consensus-freq', dest='consensus_frequency', type=int, default=1,
                         help='freq>0 -> do averaging <freq> times per batch, '
                              'freq<0 -> do averaging once per (-freq) batches')
+    parser.add_argument('--use-consensus-rounds', dest='use_consenus_rounds', action='store_true')
+    parser.add_argument('--consensus-rounds-precision', dest='consensus_rounds_precision', type=float, default=1e-4)
     parser.add_argument('--no-validation', dest='no_validation', action='store_true')
     parser.add_argument('--use-lsr', dest='use_lsr', action='store_true')
 
@@ -91,7 +93,7 @@ async def main(cfg):
     torch.manual_seed(239)
 
     print('Consensus agent: {}'.format(cfg.agent_token))
-    convergence_eps = 1e-4
+    convergence_eps = cfg.consensus_rounds_precision
     agent = ConsensusAgent(cfg.agent_token, cfg.agent_host, cfg.agent_port, cfg.master_host, cfg.master_port,
                            convergence_eps=convergence_eps, debug=True if cfg.debug else False)
     agent_serve_task = asyncio.create_task(agent.serve_forever())
@@ -218,12 +220,18 @@ async def main(cfg):
         if cfg.consensus_frequency < 0:
             if run_averaging.executions_count % (-cfg.consensus_frequency) == 0:
                 params = dump_params(model)
-                params = await agent.run_once(params)
+                if cfg.use_consenus_rounds:
+                    params = await agent.run_round(params, 1.0)
+                else:
+                    params = await agent.run_once(params)
                 load_params(model, params)
         else:
             params = dump_params(model)
             for _ in range(cfg.consensus_frequency):
-                params = await agent.run_once(params)
+                if cfg.use_consenus_rounds:
+                    params = await agent.run_round(params, 1.0)
+                else:
+                    params = await agent.run_once(params)
             load_params(model, params)
         run_averaging.executions_count += 1
     run_averaging.executions_count = 0
