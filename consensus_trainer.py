@@ -204,17 +204,14 @@ async def main(cfg):
         return
 
     def dump_params(model):
-        return torch.cat([v.to(torch.float32).view(-1) for k, v in model.state_dict().items()]).cpu().numpy()
+        return torch.cat([p.data.to(torch.float32).view(-1) for p in model.parameters()]).detach().clone().cpu().numpy()
 
     def load_params(model, params):
-        st = model.state_dict()
         used_params = 0
-        for k in st.keys():
-            cnt_params = st[k].numel()
-            st[k] = torch.Tensor(params[used_params:used_params + cnt_params]).view(st[k].shape)\
-                .to(st[k].dtype).to(st[k].device)
+        for p in model.parameters():
+            cnt_params = p.numel()
+            p.data.copy_(torch.Tensor(params[used_params:used_params + cnt_params]).view(p.shape).to(p.dtype))
             used_params += cnt_params
-        model.load_state_dict(st)
 
     async def run_averaging():
         if cfg.consensus_frequency < 0:
