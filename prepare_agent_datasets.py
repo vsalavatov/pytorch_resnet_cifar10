@@ -5,8 +5,10 @@ import os
 import shutil
 import torch
 import numpy as np
+import argparse
 
-def prepare_agent_datasets():
+
+def prepare_agent_datasets(n):
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
 
@@ -19,9 +21,9 @@ def prepare_agent_datasets():
 
     inds = np.arange(len(train_dataset))
     np.random.shuffle(inds)
-    split = np.split(inds, 10)
+    split = np.split(inds, n)
 
-    for token in range(10):
+    for token in range(n):
         X = []
         Y = []
         for ind in split[token]:
@@ -35,4 +37,7 @@ def prepare_agent_datasets():
         torch.save(ds, 'data/{}/dataset.torch'.format(token))
 
 if __name__ == '__main__':
-    prepare_agent_datasets()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--agents-count', '-n', required=True, type=int)
+    args = parser.parse_args()
+    prepare_agent_datasets(args.agents_count)
