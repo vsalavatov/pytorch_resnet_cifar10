@@ -1,5 +1,6 @@
 import signal
 import argparse
+import time
 import matplotlib.pyplot as plt
 from IPython.display import display, clear_output
 from model_statistics import ModelStatistics
@@ -63,6 +64,8 @@ def plot_loop(names, paths, title, save=None):
     
         if save is not None:
             fig.savefig(save)
+
+        time.sleep(5.0)
         
 
 if __name__ == '__main__':
