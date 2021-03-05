@@ -50,7 +50,7 @@ def make_config_parser():
     parser.add_argument('--consensus-freq', dest='consensus_frequency', type=int, default=1,
                         help='freq>0 -> do averaging <freq> times per batch, '
                              'freq<0 -> do averaging once per (-freq) batches')
-    parser.add_argument('--use-consensus-rounds', dest='use_consenus_rounds', action='store_true')
+    parser.add_argument('--use-consensus-rounds', dest='use_consensus_rounds', action='store_true')
     parser.add_argument('--consensus-rounds-precision', dest='consensus_rounds_precision', type=float, default=1e-4)
     parser.add_argument('--no-validation', dest='no_validation', action='store_true')
     parser.add_argument('--use-lsr', dest='use_lsr', action='store_true')
@@ -220,7 +220,7 @@ async def main(cfg):
         if cfg.consensus_frequency < 0:
             if run_averaging.executions_count % (-cfg.consensus_frequency) == 0:
                 params = dump_params(model)
-                if cfg.use_consenus_rounds:
+                if cfg.use_consensus_rounds:
                     params = await agent.run_round(params, 1.0)
                 else:
                     params = await agent.run_once(params)
@@ -228,7 +228,7 @@ async def main(cfg):
         else:
             params = dump_params(model)
             for _ in range(cfg.consensus_frequency):
-                if cfg.use_consenus_rounds:
+                if cfg.use_consensus_rounds:
                     params = await agent.run_round(params, 1.0)
                 else:
                     params = await agent.run_once(params)
