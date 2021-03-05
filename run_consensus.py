@@ -23,6 +23,8 @@ parser.add_argument('--use-consensus-rounds', dest='use_consensus_rounds', actio
                     help='do consensus rounds instead of fixed number of consensus iterations')
 parser.add_argument('--consensus-rounds-precision', dest='consensus_rounds_precision', type=float, default=1e-4)
 parser.add_argument('--use-lsr', dest='use_lsr', action='store_true')
+parser.add_argument('-b', '--batch-size', default=32, type=int,
+                        metavar='N', help='mini-batch size (default: 32)')
 
 parser.add_argument('--master-host', default='127.0.0.1', type=str)
 parser.add_argument('--master-port', default=8999, type=int)
@@ -118,14 +120,17 @@ async def run(args):
                                   '--master-host', f'{args.master_host}',
                                   '--master-port', f'{args.master_port}',
                                   '--total-agents', f'{total_agents}',
-                                  '--save-dir', os.environ['CHECKPOINT_PATH']
+                                  '--save-dir', os.environ['CHECKPOINT_PATH'],
+                                  '--use-prepared-data'
                               ]
 
-                              + (['--consensus-freq', f'{args.consensus_freq}'] if args.consensus_freq else [])
-                              + (['--use-consensus-rounds'] if args.use_consensus_rounds else [])
+                              + (['--consensus-freq', f'{args.consensus_frequency}']
+                                 if args.consensus_frequency is not None else [])
+                              + (['--use-consensus-rounds'] if args.use_consensus_rounds is not None else [])
                               + (['--consensus-rounds-precision', f'{args.consensus_rounds_precision}']
-                                 if args.consensus_rounds_precision else [])
-                              + (['--use-lsr'] if args.usr_lsr else [])
+                                 if args.consensus_rounds_precision is not None else [])
+                              + (['--use-lsr'] if args.use_lsr else [])
+                              + (['--batch-size', f'{args.batch_size}'] if args.batch_size is not None else [])
 
                               + (['--init-leader', '--enable-log'] if token == 0 else [])
                               + (['--debug-consensus'] if args.debug else [])
