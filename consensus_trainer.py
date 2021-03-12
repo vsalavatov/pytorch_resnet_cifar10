@@ -277,7 +277,7 @@ async def main(cfg):
         }, is_best, filename=os.path.join(cfg.save_dir, 'model.th'))
         statistics.dump_to_file(os.path.join(cfg.save_dir, 'statistics.pickle'))
 
-    agent_serve_task.cancel()
+        agent_serve_task.cancel()
 
 
 async def train(cfg, train_loader, model, criterion, optimizer, epoch, statistics, run_averaging):

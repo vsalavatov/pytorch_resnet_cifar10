@@ -38,7 +38,7 @@ def make_topology(args):
     if args.world_size is not None and args.topology is not None:
         n = args.world_size
         if args.topology == 'mesh':
-            return [(i, j) for i in range(args.world_size) for j in range(i + 1, n)], n
+            return [(i, j) for i in range(n) for j in range(i + 1, n)], n
         elif args.topology == 'star':
             return [(0, j) for j in range(1, n)], n
         elif args.topology == 'ring':
@@ -57,6 +57,13 @@ def make_topology(args):
                        ((layer + 1) % side * side + elem)
                    ) for elem in range(side) for layer in range(side)],\
                    n
+        elif args.topology == 'expander':
+            import networkx as nx
+            side = n ** 0.5
+            if side * side != n:
+                raise ValueError('topology=expander => world size must be exact square')
+            G = nx.generators.expanders.margulis_gabber_galil_graph(side)
+            return G.edges()
         else:
             raise ValueError(bad_args_msg)
     if args.topology_file is not None:
