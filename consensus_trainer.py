@@ -19,6 +19,8 @@ import torch.utils.data
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 
+from timer import Timer
+
 sys.path.append('./distributed-learning/')
 
 from model_statistics import ModelStatistics
@@ -244,40 +246,41 @@ async def main(cfg):
         print('Initial averaging completed!')
 
     for epoch in range(cfg.start_epoch, cfg.epochs):
-        statistics.set_epoch(epoch)
-        # train for one epoch
-        if cfg.logging:
-            print('current lr {:.5e}'.format(optimizer.param_groups[0]['lr']))
-        statistics.add('train_begin_timestamp', time.time())
-        await train(cfg, train_loader, model, criterion, optimizer, epoch, statistics, run_averaging)
-        lr_scheduler.step()
-        statistics.add('train_end_timestamp', time.time())
+        with Timer("Running epoch"):
+            statistics.set_epoch(epoch)
+            # train for one epoch
+            if cfg.logging:
+                print('current lr {:.5e}'.format(optimizer.param_groups[0]['lr']))
+            statistics.add('train_begin_timestamp', time.time())
+            await train(cfg, train_loader, model, criterion, optimizer, epoch, statistics, run_averaging)
+            lr_scheduler.step()
+            statistics.add('train_end_timestamp', time.time())
 
-        # evaluate on validation set
-        statistics.add('validate_begin_timestamp', time.time())
-        prec1 = validate(cfg, val_loader, model, criterion)
-        statistics.add('validate_end_timestamp', time.time())
-        statistics.add('val_precision', prec1)
+            # evaluate on validation set
+            statistics.add('validate_begin_timestamp', time.time())
+            prec1 = validate(cfg, val_loader, model, criterion)
+            statistics.add('validate_end_timestamp', time.time())
+            statistics.add('val_precision', prec1)
 
-        # remember best prec@1 and save checkpoint
-        is_best = prec1 > best_prec1
-        best_prec1 = max(prec1, best_prec1)
+            # remember best prec@1 and save checkpoint
+            is_best = prec1 > best_prec1
+            best_prec1 = max(prec1, best_prec1)
 
-        if epoch > 0 and epoch % cfg.save_every == 0:
+            if epoch > 0 and epoch % cfg.save_every == 0:
+                save_checkpoint({
+                    'epoch': epoch + 1,
+                    'state_dict': model.state_dict(),
+                    'best_prec1': best_prec1,
+                    'statistics': pickle.dumps(statistics)
+                }, is_best, filename=os.path.join(cfg.save_dir, 'checkpoint.th'))
+
             save_checkpoint({
-                'epoch': epoch + 1,
                 'state_dict': model.state_dict(),
                 'best_prec1': best_prec1,
-                'statistics': pickle.dumps(statistics)
-            }, is_best, filename=os.path.join(cfg.save_dir, 'checkpoint.th'))
+            }, is_best, filename=os.path.join(cfg.save_dir, 'model.th'))
+            statistics.dump_to_file(os.path.join(cfg.save_dir, 'statistics.pickle'))
 
-        save_checkpoint({
-            'state_dict': model.state_dict(),
-            'best_prec1': best_prec1,
-        }, is_best, filename=os.path.join(cfg.save_dir, 'model.th'))
-        statistics.dump_to_file(os.path.join(cfg.save_dir, 'statistics.pickle'))
-
-    agent_serve_task.cancel()
+        agent_serve_task.cancel()
 
 
 async def train(cfg, train_loader, model, criterion, optimizer, epoch, statistics, run_averaging):
