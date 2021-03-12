@@ -217,18 +217,12 @@ async def main(cfg):
         if cfg.consensus_frequency < 0:
             if run_averaging.executions_count % (-cfg.consensus_frequency) == 0:
                 params = dump_params(model)
-                if cfg.use_consensus_rounds:
-                    params = await agent.run_round(params, 1.0)
-                else:
-                    params = await agent.run_once(params)
+                params = await agent.run_once(params)
                 load_params(model, params)
         else:
             params = dump_params(model)
             for _ in range(cfg.consensus_frequency):
-                if cfg.use_consensus_rounds:
-                    params = await agent.run_round(params, 1.0)
-                else:
-                    params = await agent.run_once(params)
+                params = await agent.run_once(params)
             load_params(model, params)
         run_averaging.executions_count += 1
     run_averaging.executions_count = 0
@@ -236,10 +230,11 @@ async def main(cfg):
     if cfg.logging:
         print('Starting initial averaging...')
 
+    '''
     params = dump_params(model)
     params = await agent.run_round(params, 1.0 if cfg.init_leader else 0.0)
     load_params(model, params)
-
+    '''
     if cfg.logging:
         print('Initial averaging completed!')
 
