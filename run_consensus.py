@@ -59,7 +59,10 @@ def make_topology(args):
                    n
         elif args.topology == 'expander':
             import networkx as nx
-            G = nx.generators.expanders.margulis_gabber_galil_graph(n)
+            side = n ** 0.5
+            if side * side != n:
+                raise ValueError('topology=expander => world size must be exact square')
+            G = nx.generators.expanders.margulis_gabber_galil_graph(side)
             return G.edges()
         else:
             raise ValueError(bad_args_msg)
