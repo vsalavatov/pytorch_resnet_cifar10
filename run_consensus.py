@@ -19,9 +19,9 @@ parser.add_argument('--validation-agents', type=str, help='e.g. --validation-age
 parser.add_argument('--consensus-freq', dest='consensus_frequency', type=int, default=1,
                         help='freq>0 -> do averaging <freq> times per batch, '
                              'freq<0 -> do averaging once per (-freq) batches')
-parser.add_argument('--use-consensus-rounds', dest='use_consensus_rounds', action='store_true',
-                    help='do consensus rounds instead of fixed number of consensus iterations')
-parser.add_argument('--consensus-rounds-precision', dest='consensus_rounds_precision', type=float, default=1e-4)
+# parser.add_argument('--use-consensus-rounds', dest='use_consensus_rounds', action='store_true',
+#                     help='do consensus rounds instead of fixed number of consensus iterations')
+# parser.add_argument('--consensus-rounds-precision', dest='consensus_rounds_precision', type=float, default=1e-4)
 parser.add_argument('--use-lsr', dest='use_lsr', action='store_true')
 parser.add_argument('-b', '--batch-size', default=32, type=int,
                         metavar='N', help='mini-batch size (default: 32)')
@@ -133,9 +133,9 @@ async def run(args):
 
                               + (['--consensus-freq', f'{args.consensus_frequency}']
                                  if args.consensus_frequency is not None else [])
-                              + (['--use-consensus-rounds'] if args.use_consensus_rounds is not None else [])
-                              + (['--consensus-rounds-precision', f'{args.consensus_rounds_precision}']
-                                 if args.consensus_rounds_precision is not None else [])
+                              # + (['--use-consensus-rounds'] if args.use_consensus_rounds is not None else [])
+                              # + (['--consensus-rounds-precision', f'{args.consensus_rounds_precision}']
+                              #    if args.consensus_rounds_precision is not None else [])
                               + (['--use-lsr'] if args.use_lsr else [])
                               + (['--batch-size', f'{args.batch_size}'] if args.batch_size is not None else [])
 
