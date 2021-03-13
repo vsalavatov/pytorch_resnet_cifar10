@@ -44,7 +44,7 @@ def make_topology(args):
         elif args.topology == 'ring':
             return [(j, (j + 1) % n) for j in range(n)], n
         elif args.topology == 'torus':
-            side = n ** 0.5
+            side = int(n ** 0.5)
             if side * side != n:
                 raise ValueError('topology=torus => world size must be exact square')
             return [ (
@@ -59,7 +59,7 @@ def make_topology(args):
                    n
         elif args.topology == 'expander':
             import networkx as nx
-            side = n ** 0.5
+            side = int(n ** 0.5)
             if side * side != n:
                 raise ValueError('topology=expander => world size must be exact square')
             G = nx.generators.expanders.margulis_gabber_galil_graph(side)
