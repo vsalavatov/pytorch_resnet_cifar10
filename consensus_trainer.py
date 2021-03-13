@@ -23,7 +23,7 @@ sys.path.append('./distributed-learning/')
 
 from model_statistics import ModelStatistics
 from utils.consensus_tcp import ConsensusAgent
-
+from prepare_agent_datasets import get_agent_train_loader, get_agent_val_loader
 model_names = sorted(name for name in resnet.__dict__
                      if name.islower() and not name.startswith("__")
                      and name.startswith("resnet")
@@ -132,42 +132,10 @@ async def main(cfg):
 
     cudnn.benchmark = True
 
-    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
     print('{}: Loading dataset...'.format(cfg.agent_token))
-    dataset_path = os.path.join('./data/', str(cfg.agent_token))
-    train_dataset = datasets.CIFAR10(root=dataset_path, train=True, transform=transforms.Compose([
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomCrop(32, 4),
-            transforms.ToTensor(),
-            normalize,
-        ]), download=True) \
-        if not cfg.data_prepared else \
-        torch.load(os.path.join(dataset_path, 'dataset.torch'))
-    print('{}: Loaded dataset!'.format(cfg.agent_token))
-    size_per_agent = len(train_dataset) // cfg.total_agents
-    train_indices = list(
-        range(cfg.agent_token * size_per_agent, min(len(train_dataset), (cfg.agent_token + 1) * size_per_agent)))
-
-    if cfg.data_prepared:
-        train_indices = list(range(len(train_dataset)))
-        print('Prepared data: {} samples for agent {}'.format(len(train_indices), cfg.agent_token))
-
-    from torch.utils.data.sampler import SubsetRandomSampler
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset,
-        batch_size=cfg.batch_size, shuffle=False,  # !!!!!
-        num_workers=cfg.workers, pin_memory=True,
-        sampler=SubsetRandomSampler(train_indices)
-    )
-
-    val_loader = None if cfg.no_validation else torch.utils.data.DataLoader(
-        datasets.CIFAR10(root=dataset_path, train=False, download=True, transform=transforms.Compose([
-            transforms.ToTensor(),
-            normalize,
-        ])),
-        batch_size=128, shuffle=False,
-        num_workers=cfg.workers, pin_memory=True)
+    train_loader = get_agent_train_loader(cfg.agent_token, cfg.batch_size)
+    print('{}: loaded {} batches for train'.format(cfg.agent_token, len(train_loader)))
+    val_loader = None if cfg.no_validation else get_agent_val_loader(cfg.agent_token)
 
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda()
