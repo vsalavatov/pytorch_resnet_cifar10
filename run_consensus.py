@@ -63,9 +63,10 @@ def make_topology(args):
             if side * side != n:
                 raise ValueError('topology=expander => world size must be exact square')
             G = nx.generators.expanders.margulis_gabber_galil_graph(side)
-            return G.edges()
+            return [(side * u[0] + u[1], side * v[0] + v[1]) for u, v in G.edges()], n
         else:
             raise ValueError(bad_args_msg)
+
     if args.topology_file is not None:
         with open(args.topology_file, 'r') as f:
             file_fmt_help = 'File should look like this:\n'\
