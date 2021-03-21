@@ -24,10 +24,13 @@ sys.path.append('./distributed-learning/')
 from model_statistics import ModelStatistics
 from utils.consensus_tcp import ConsensusAgent
 from prepare_agent_datasets import get_agent_train_loader, get_agent_val_loader
+from consensus_master import TelemetryModelParameters, TelemetryAgentGeneralInfo
+
 model_names = sorted(name for name in resnet.__dict__
                      if name.islower() and not name.startswith("__")
                      and name.startswith("resnet")
                      and callable(resnet.__dict__[name]))
+
 
 def make_config_parser():
     parser = argparse.ArgumentParser(description='Proper ResNets for CIFAR10 in pytorch')
@@ -89,16 +92,56 @@ def make_config_parser():
     return parser
 
 
+class ConsensusSpecific:
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.agent = None
+        self.agent_serve_task = None
+
+        self.run_averaging_exec_count = 0
+        self.batch_counter = 0
+
+    def init_consensus(self):
+        self.agent = ConsensusAgent(self.cfg.agent_token, self.cfg.agent_host, self.cfg.agent_port,
+                                    self.cfg.master_host, self.cfg.master_port,
+                                    debug=True if self.cfg.debug else False)
+        self.agent_serve_task = asyncio.create_task(self.agent.serve_forever())
+        print('{}: Created serving task'.format(self.cfg.agent_token))
+
+    def stop_consensus(self):
+        self.agent_serve_task.cancel()
+
+    def dump_params(self, model):
+        return torch.cat([p.data.to(torch.float32).view(-1) for p in model.parameters()]).detach().clone().cpu().numpy()
+
+    def load_params(self, model, params):
+        used_params = 0
+        for p in model.parameters():
+            cnt_params = p.numel()
+            p.data.copy_(torch.Tensor(params[used_params:used_params + cnt_params]).view(p.shape).to(p.dtype))
+            used_params += cnt_params
+
+    async def run_averaging(self, model):
+        if self.cfg.consensus_frequency < 0:
+            if self.run_averaging_exec_count % (-self.cfg.consensus_frequency) == 0:
+                params = self.dump_params(model)
+                params = await self.agent.run_once(params)
+                self.load_params(model, params)
+        else:
+            params = self.dump_params(model)
+            for _ in range(self.cfg.consensus_frequency):
+                params = await self.agent.run_once(params)
+            self.load_params(model, params)
+        self.run_averaging_exec_count += 1
+
+
 async def main(cfg):
     best_prec1 = 0
     torch.manual_seed(239)
 
     print('Consensus agent: {}'.format(cfg.agent_token))
-    # convergence_eps = cfg.consensus_rounds_precision
-    agent = ConsensusAgent(cfg.agent_token, cfg.agent_host, cfg.agent_port, cfg.master_host, cfg.master_port,
-                           debug=True if cfg.debug else False) # convergence_eps=convergence_eps,
-    agent_serve_task = asyncio.create_task(agent.serve_forever())
-    print('{}: Created serving task'.format(cfg.agent_token))
+    consensus_specific = ConsensusSpecific(cfg)
+    consensus_specific.init_consensus()
 
     # Check the save_dir exists or not
     cfg.save_dir = os.path.join(cfg.save_dir, str(cfg.agent_token))
@@ -151,7 +194,7 @@ async def main(cfg):
 
     def lr_schedule(epoch):
         if cfg.use_warmup and cfg.use_lsr and epoch < 5:
-            factor = (epoch+1)*cfg.total_agents/5
+            factor = (epoch + 1) * cfg.total_agents / 5
         else:
             factor = cfg.total_agents if cfg.use_lsr else 1.0
         if epoch >= 81:
@@ -175,48 +218,14 @@ async def main(cfg):
         validate(cfg, val_loader, model, criterion)
         return
 
-    def dump_params(model):
-        return torch.cat([p.data.to(torch.float32).view(-1) for p in model.parameters()]).detach().clone().cpu().numpy()
-
-    def load_params(model, params):
-        used_params = 0
-        for p in model.parameters():
-            cnt_params = p.numel()
-            p.data.copy_(torch.Tensor(params[used_params:used_params + cnt_params]).view(p.shape).to(p.dtype))
-            used_params += cnt_params
-
-    async def run_averaging():
-        if cfg.consensus_frequency < 0:
-            if run_averaging.executions_count % (-cfg.consensus_frequency) == 0:
-                params = dump_params(model)
-                params = await agent.run_once(params)
-                load_params(model, params)
-        else:
-            params = dump_params(model)
-            for _ in range(cfg.consensus_frequency):
-                params = await agent.run_once(params)
-            load_params(model, params)
-        run_averaging.executions_count += 1
-    run_averaging.executions_count = 0
-
-    if cfg.logging:
-        print('Starting initial averaging...')
-
-    '''
-    params = dump_params(model)
-    params = await agent.run_round(params, 1.0 if cfg.init_leader else 0.0)
-    load_params(model, params)
-    '''
-    if cfg.logging:
-        print('Initial averaging completed!')
+    await consensus_specific.agent.send_telemetry(TelemetryAgentGeneralInfo(batches_per_epoch=len(train_loader)))
 
     for epoch in range(cfg.start_epoch, cfg.epochs):
-        statistics.set_epoch(epoch)
         # train for one epoch
         if cfg.logging:
             print('current lr {:.5e}'.format(optimizer.param_groups[0]['lr']))
         statistics.add('train_begin_timestamp', time.time())
-        await train(cfg, train_loader, model, criterion, optimizer, epoch, statistics, run_averaging)
+        await train(consensus_specific, train_loader, model, criterion, optimizer, epoch, statistics)
         lr_scheduler.step()
         statistics.add('train_end_timestamp', time.time())
 
@@ -244,13 +253,15 @@ async def main(cfg):
         }, is_best, filename=os.path.join(cfg.save_dir, 'model.th'))
         statistics.dump_to_file(os.path.join(cfg.save_dir, 'statistics.pickle'))
 
-    agent_serve_task.cancel()
+    consensus_specific.stop_consensus()
 
 
-async def train(cfg, train_loader, model, criterion, optimizer, epoch, statistics, run_averaging):
+async def train(consensus_specific, train_loader, model, criterion, optimizer, epoch, statistics):
     """
         Run one train epoch
     """
+    cfg = consensus_specific.cfg
+
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
@@ -262,7 +273,7 @@ async def train(cfg, train_loader, model, criterion, optimizer, epoch, statistic
     start = time.time()
     end = time.time()
     for i, (input, target) in enumerate(train_loader):
-
+        consensus_specific.batch_counter += 1
         # measure data loading time
         data_time.update(time.time() - end)
 
@@ -282,7 +293,7 @@ async def train(cfg, train_loader, model, criterion, optimizer, epoch, statistic
         optimizer.step()
 
         # average model
-        await run_averaging()
+        await consensus_specific.run_averaging(model)
 
         output = output.float()
         loss = loss.float()
@@ -295,15 +306,20 @@ async def train(cfg, train_loader, model, criterion, optimizer, epoch, statistic
         batch_time.update(time.time() - end)
         end = time.time()
 
+        await consensus_specific.agent.send_telemetry(TelemetryModelParameters(
+                                                          consensus_specific.batch_counter,
+                                                          consensus_specific.dump_params(model)
+                                                      ))
+
         if i % cfg.print_freq == 0:
             if cfg.logging:
                 print('\rEpoch: [{0}][{1}/{2}]\t'
-                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                  'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
-                  'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                  'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
-                epoch, i, len(train_loader), batch_time=batch_time,
-                data_time=data_time, loss=losses, top1=top1), end='')
+                      'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                      'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
+                      'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                      'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
+                    epoch, i, len(train_loader), batch_time=batch_time,
+                    data_time=data_time, loss=losses, top1=top1), end='')
     if cfg.logging:
         print('\nEpoch took {:.2f} s.'.format(end - start))
     statistics.add('train_precision', top1.avg)
@@ -352,15 +368,14 @@ def validate(cfg, val_loader, model, criterion):
             if i % cfg.print_freq == 0:
                 if cfg.logging:
                     print('\rTest: [{0}/{1}]\t'
-                      'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                      'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                      'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
-                    i, len(val_loader), batch_time=batch_time, loss=losses,
-                    top1=top1), end='')
+                          'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                          'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                          'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
+                        i, len(val_loader), batch_time=batch_time, loss=losses,
+                        top1=top1), end='')
 
     if cfg.logging:
-        print('\n * Prec@1 {top1.avg:.3f}'
-          .format(top1=top1))
+        print('\n * Prec@1 {top1.avg:.3f}'.format(top1=top1))
 
     return top1.avg
 

@@ -7,6 +7,8 @@ sys.path.append('./distributed-learning/')
 from utils.consensus_tcp import ConsensusMaster
 
 import consensus_trainer
+import consensus_master
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--world-size', '-n', type=int,
@@ -113,7 +115,12 @@ def extract_validation_agents(args, total_agents):
 async def run(args):
     topology, total_agents = make_topology(args)
 
-    master = ConsensusMaster(topology, '127.0.0.1', args.master_port, debug=True if args.debug else False)
+    telemetry_processor = consensus_master.ResNet20TelemetryProcessor(
+        os.path.join(os.environ['CHECKPOINT_PATH'], 'telemetry.pickle'),
+        topology)
+    master = ConsensusMaster(topology, '127.0.0.1', args.master_port,
+                             debug=True if args.debug else False,
+                             telemetry_processor=telemetry_processor)
     master_task = asyncio.create_task(master.serve_forever())
     await asyncio.sleep(1)  # wait until master initialize
 

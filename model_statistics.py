@@ -16,10 +16,10 @@ class ModelStatistics:
         return self.data[key]
 
     def dump_to_file(self, path=None):
-        if self.save_path is None:
-            self.save_path = path
+        if path is None:
+            path = self.save_path
 
-        if self.save_path is None and path is None:
+        if path is None:
             raise ValueError('No path specified. Use argument path=')
 
         with open(path, 'wb') as f:
