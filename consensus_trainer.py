@@ -8,7 +8,7 @@ import os
 import pickle
 import sys
 import time
-
+import numpy as np
 import resnet
 import torch
 import torch.backends.cudnn as cudnn
@@ -57,7 +57,7 @@ def make_config_parser():
     # parser.add_argument('--consensus-rounds-precision', dest='consensus_rounds_precision', type=float, default=1e-4)
     parser.add_argument('--no-validation', dest='no_validation', action='store_true')
     parser.add_argument('--use-lsr', dest='use_lsr', action='store_true')
-    parser.add_argument('--use-warmup', dest='use_warmup', action='store_true')
+    parser.add_argument('--warmup', dest='warmup', default=0, type=int)
 
     parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                         help='number of data loading workers (default: 4)')
@@ -193,8 +193,8 @@ async def main(cfg):
                                 weight_decay=cfg.weight_decay)
 
     def lr_schedule(epoch):
-        if cfg.use_warmup and cfg.use_lsr and epoch < 5:
-            factor = (epoch + 1) * cfg.total_agents / 5
+        if cfg.use_lsr and epoch < cfg.warmup:
+            factor = np.power(cfg.total_agents, epoch/cfg.warmup)
         else:
             factor = cfg.total_agents if cfg.use_lsr else 1.0
         if epoch >= 81:
