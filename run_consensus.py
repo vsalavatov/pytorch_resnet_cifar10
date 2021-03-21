@@ -23,6 +23,7 @@ parser.add_argument('--consensus-freq', dest='consensus_frequency', type=int, de
 #                     help='do consensus rounds instead of fixed number of consensus iterations')
 # parser.add_argument('--consensus-rounds-precision', dest='consensus_rounds_precision', type=float, default=1e-4)
 parser.add_argument('--use-lsr', dest='use_lsr', action='store_true')
+parser.add_argument('--use-warmup', dest='use_warmup', action='store_true')
 parser.add_argument('-b', '--batch-size', default=32, type=int,
                         metavar='N', help='mini-batch size (default: 32)')
 
