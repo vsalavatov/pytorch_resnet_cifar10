@@ -47,6 +47,13 @@ class ResNet20TelemetryProcessor(TelemetryProcessor):
                                {agent: np.linalg.norm(deviation_params[agent], ord=2) for agent in self.agents})
                 self.stats.add('param_deviation_Linf',
                                {agent: np.linalg.norm(deviation_params[agent], ord=np.inf) for agent in self.agents})
+
+                arr_params = np.array([params[agent] for agent in self.agents])
+                max_cv = np.linalg.norm(
+                    np.std(arr_params, axis=0) / np.mean(arr_params, axis=0),
+                    ord=np.inf)
+                self.stats.add('coef_of_var', max_cv)
+
                 self.stats.dump_to_file()
                 del self.agent_params_by_iter[payload.batch_number]
         elif isinstance(payload, TelemetryAgentGeneralInfo):
