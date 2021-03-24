@@ -57,8 +57,8 @@ class Agent:
 
             acc = 100. * correct / total
 
-        self.stats.add('test_accuracy', acc)
-        self.stats.add('test_loss', test_loss)
+        self.stats.add('val_precision', acc)
+        self.stats.add('val_loss', test_loss)
 
     def make_iteration(self):
         # scheduled training and saving statistics
@@ -80,7 +80,7 @@ class Agent:
             self._buffer_stat['train_loss'] = 0.0
 
             acc = 100. * self._buffer_stat['train_correct'] / self._buffer_stat['train_total']
-            self.stats.add('train_accuracy', acc)
+            self.stats.add('train_precision', acc)
             self._buffer_stat['train_correct'] = 0
             self._buffer_stat['train_total'] = 0
 
