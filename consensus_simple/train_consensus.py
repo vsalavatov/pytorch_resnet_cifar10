@@ -14,7 +14,7 @@ import time
 from consensus_simple.mixer import Mixer
 from consensus_simple.utils import *
 from consensus_simple.agent import Agent
-from model_statistics import ModelStatistics
+from consensus_simple.statistic_collector import StatisticCollector
 
 SEED = 42
 
@@ -162,8 +162,10 @@ def main(args):
     models = get_resnet20_models(args)
     logger.info('{} Models successfully prepared'.format(len(models)))
 
-    global_statistic = ModelStatistics('global_statistic', save_path=args['stat_path'] / 'global_statistic')
-    logger.info('ModelStatistics successfully prepared')
+    global_statistic = StatisticCollector('global_statistic',
+                                          logger=logger,
+                                          save_path=args['stat_path'] / 'global_statistic')
+    logger.info('StatisticCollector successfully prepared')
 
     mixer = Mixer(topology, logger)
     logger.info('Mixer successfully prepared')
@@ -185,7 +187,9 @@ def main(args):
                                     lr_scheduler=lr_scheduler,
                                     train_loader=train_loaders[agent_name],
                                     test_loader=test_loader,
-                                    stats=ModelStatistics(agent_name, save_path=args['stat_path'] / str(agent_name)),
+                                    stats=StatisticCollector(agent_name,
+                                                             logger=logger,
+                                                             save_path=args['stat_path'] / str(agent_name)),
                                     train_freq=train_freqs[agent_name],
                                     stat_freq=args['stat_freq'])
 
