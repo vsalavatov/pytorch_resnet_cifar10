@@ -76,7 +76,7 @@ class Agent:
             self._buffer_stat['train_correct'] += train_stats['train_correct']
 
         if self.global_iteration % self.stat_freq == 0:
-            self.stats.add('train_loss', self._buffer_stat['train_loss'])
+            self.stats.add('train_loss', self._buffer_stat['train_loss']/self._buffer_stat['train_total'])
             self._buffer_stat['train_loss'] = 0.0
 
             acc = 100. * self._buffer_stat['train_correct'] / self._buffer_stat['train_total']
