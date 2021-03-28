@@ -26,6 +26,8 @@ parser.add_argument('--consensus-freq', dest='consensus_frequency', type=int, de
 # parser.add_argument('--consensus-rounds-precision', dest='consensus_rounds_precision', type=float, default=1e-4)
 parser.add_argument('--use-lsr', dest='use_lsr', action='store_true')
 parser.add_argument('--warmup', dest='warmup', default=0, type=int)
+parser.add_argument('--momentum-consensus', dest='momentum_consensus', action='store_true')
+
 parser.add_argument('-b', '--batch-size', default=32, type=int,
                         metavar='N', help='mini-batch size (default: 32)')
 
@@ -147,6 +149,8 @@ async def run(args):
                               #    if args.consensus_rounds_precision is not None else [])
                               + (['--use-lsr'] if args.use_lsr else [])
                               + ([f'--warmup', f'{args.warmup}'] if args.warmup is not None else [])
+                              + (['--momentum-consensus'] if args.momentum_consensus else [])
+
                               + (['--batch-size', f'{args.batch_size}'] if args.batch_size is not None else [])
 
                               + (['--init-leader', '--enable-log'] if token == 0 else [])

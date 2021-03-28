@@ -58,6 +58,7 @@ def make_config_parser():
     parser.add_argument('--no-validation', dest='no_validation', action='store_true')
     parser.add_argument('--use-lsr', dest='use_lsr', action='store_true')
     parser.add_argument('--warmup', dest='warmup', default=0, type=int)
+    parser.add_argument('--momentum-consensus', dest='momentum_consensus', action='store_true')
 
     parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                         help='number of data loading workers (default: 4)')
@@ -76,7 +77,7 @@ def make_config_parser():
     parser.add_argument('--print-freq', '-p', default=50, type=int,
                         metavar='N', help='print frequency (default: 50)')
     parser.add_argument('--resume', default='', type=str, metavar='PATH',
-                        help='path to latest checkpoint (default: none)')
+                        help='path to latest checkpoint (d  efault: none)')
     parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                         help='evaluate model on validation set')
     parser.add_argument('--pretrained', dest='pretrained', action='store_true',
@@ -89,6 +90,7 @@ def make_config_parser():
     parser.add_argument('--save-every', dest='save_every',
                         help='Saves checkpoints at every specified number of epochs',
                         type=int, default=10)
+
     return parser
 
 
@@ -111,30 +113,79 @@ class ConsensusSpecific:
     def stop_consensus(self):
         self.agent_serve_task.cancel()
 
-    def dump_params(self, model):
-        return torch.cat([p.data.to(torch.float32).view(-1) for p in model.parameters()]).detach().clone().cpu().numpy()
+    def dump_params(self, model, optimizer_manager=None):
+        model_params = torch.cat([p.data.to(torch.float32).view(-1) for p in model.parameters()]).detach().clone().cpu().numpy()
+        if optimizer_manager is None:
+            return model_params
+        else:
+            optimizer_params = optimizer_manager.extract()
+            return np.concatenate([model_params, optimizer_params])
 
-    def load_params(self, model, params):
+    def load_params(self, model, params, optimizer_manager=None):
         used_params = 0
         for p in model.parameters():
             cnt_params = p.numel()
             p.data.copy_(torch.Tensor(params[used_params:used_params + cnt_params]).view(p.shape).to(p.dtype))
             used_params += cnt_params
+        if optimizer_manager is not None:
+            optimizer_manager.set(params[used_params:])
 
-    async def run_averaging(self, model):
+    async def run_averaging(self, model, optimizer=None):
+        if optimizer is not None:
+            optimizer_manager = MomentumBufferManager(optimizer)
+        else:
+            optimizer_manager = None
         if self.cfg.consensus_frequency < 0:
             if self.run_averaging_exec_count % (-self.cfg.consensus_frequency) == 0:
-                params = self.dump_params(model)
+                params = self.dump_params(model, optimizer_manager)
                 params = await self.agent.run_once(params)
-                self.load_params(model, params)
+                self.load_params(model, params, optimizer_manager)
         else:
-            params = self.dump_params(model)
+            params = self.dump_params(model, optimizer_manager)
             for _ in range(self.cfg.consensus_frequency):
                 params = await self.agent.run_once(params)
-            self.load_params(model, params)
+            self.load_params(model, params, optimizer_manager)
         self.run_averaging_exec_count += 1
 
 
+class MomentumBufferManager:
+    def __init__(self, optimizer):
+        self.optimizer = optimizer
+        self.shapes = []
+        self.sizes = []
+
+    def extract(self):
+        momentum_buffer_list = []
+        for group in self.optimizer.param_groups:
+            for p in group['params']:
+                if p.grad is not None:
+                    state = self.optimizer.state[p]
+                    if 'momentum_buffer' not in state:
+                        raise ValueError('Initialize momentum buffer before extract them')
+                    else:
+                        momentum_buffer_list.append(state['momentum_buffer'])
+
+        extracted_buf = []
+        for buf in momentum_buffer_list:
+            np_buf = buf.clone().detach().cpu().numpy()
+            self.shapes.append(np_buf.shape)
+            self.sizes.append(np_buf.size)
+            extracted_buf.append(np_buf.reshape(-1,))
+        return np.concatenate(extracted_buf)
+
+    def set(self, values):
+        used_params = 0
+        momentum_buffer_list = []
+        for i in range(len(self.sizes)):
+            np_buf = values[used_params: used_params + self.sizes[i]].reshape(self.shapes[i])
+            buf = torch.Tensor(np_buf).cuda()
+            momentum_buffer_list.append(buf)
+        curr_id = 0
+        for group in self.optimizer.param_groups:
+            for p in group['params']:
+                if p.grad is not None:
+                    self.optimizer.state[p]['momentum_buffer'] = momentum_buffer_list[curr_id].clone()
+                    curr_id += 1
 async def main(cfg):
     best_prec1 = 0
     torch.manual_seed(239)
@@ -293,7 +344,10 @@ async def train(consensus_specific, train_loader, model, criterion, optimizer, e
         optimizer.step()
 
         # average model
-        await consensus_specific.run_averaging(model)
+        if cfg.momentum_consensus:
+            await consensus_specific.run_averaging(model, optimizer)
+        else:
+            await consensus_specific.run_averaging(model)
 
         output = output.float()
         loss = loss.float()
