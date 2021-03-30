@@ -1,3 +1,4 @@
+import torch
 import logging
 
 
@@ -27,3 +28,7 @@ def get_hms(seconds):
     h, m = divmod(m, 60)
 
     return h, m, s
+
+
+def save_checkpoint(state, filename):
+    torch.save(state, filename)

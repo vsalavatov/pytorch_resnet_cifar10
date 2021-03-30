@@ -10,6 +10,7 @@ import torchvision.transforms as transforms
 
 import numpy as np
 import time
+import pickle
 
 from consensus_simple.mixer import Mixer
 from consensus_simple.utils import *
@@ -123,7 +124,7 @@ def main(args):
     required_args = [
         'dataset_name',
         'dataset_dir',
-        'stat_path',
+        'save_path',
         'train_batch_size',
         'test_batch_size',
         'lr',
@@ -152,6 +153,18 @@ def main(args):
 
     logger.info('START with args \n{}'.format(args))
 
+    if 'checkpoint_path' in args and args['checkpoint_path']:
+        checkpoint = torch.load(args['checkpoint_path'] / 'global_statistic.th')
+        global_statistic = StatisticCollector.load_from_file(args['save_path'] / 'global_statistic')
+        logger.info('StatisticCollector successfully loaded from checkpoint')
+        start_iteration = checkpoint['iteration'] + 1
+    else:
+        global_statistic = StatisticCollector('global_statistic',
+                                              logger=logger,
+                                              save_path=args['save_path'] / 'global_statistic')
+        logger.info('StatisticCollector successfully prepared')
+        start_iteration = 1
+
     # preparing
     test_loader = get_cifar10_test_loader(args)
     logger.info('Test loader with length {} successfully prepared'.format(len(test_loader)))
@@ -161,11 +174,6 @@ def main(args):
 
     models = get_resnet20_models(args)
     logger.info('{} Models successfully prepared'.format(len(models)))
-
-    global_statistic = StatisticCollector('global_statistic',
-                                          logger=logger,
-                                          save_path=args['stat_path'] / 'global_statistic')
-    logger.info('StatisticCollector successfully prepared')
 
     mixer = Mixer(topology, logger)
     logger.info('Mixer successfully prepared')
@@ -179,6 +187,16 @@ def main(args):
         optimizer = get_optimizer(args, model)
         criterion = get_criterion()
         lr_scheduler = get_lr_scheduler(optimizer, lr_schedule=args['lr_schedule'])
+        stats = StatisticCollector(agent_name,
+                                   logger=logger,
+                                   save_path=args['save_path'] / str(agent_name))
+
+        if 'checkpoint_path' in args and args['checkpoint_path']:
+            checkpoint = torch.load(args['checkpoint_path'] / '{}.th'.format(agent_name))
+            model.load_state_dict(checkpoint['model'])
+            optimizer.load_state_dict(checkpoint['optimizer'])
+            lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
+            stats = StatisticCollector.load_from_file(args['save_path'] / str(agent_name))
 
         network[agent_name] = Agent(name=agent_name,
                                     model=model,
@@ -187,19 +205,24 @@ def main(args):
                                     lr_scheduler=lr_scheduler,
                                     train_loader=train_loaders[agent_name],
                                     test_loader=test_loader,
-                                    stats=StatisticCollector(agent_name,
-                                                             logger=logger,
-                                                             save_path=args['stat_path'] / str(agent_name)),
+                                    stats=stats,
                                     train_freq=train_freqs[agent_name],
                                     stat_freq=args['stat_freq'])
+
+        if 'checkpoint_path' in args and args['checkpoint_path']:
+            network[agent_name]._buffer_stat = checkpoint['_buffer_stat']
+            logger.info('Agent {} successfully loaded from checkpoint'.format(agent_name))
+        else:
+            logger.info('Agent {} successfully prepared'.format(agent_name))
 
     if args['num_epochs'] > 200:
         iterations = args['num_epochs']
     else:
-        iterations = args['num_epochs']*max([len(loader) for loader in train_loaders.values()])
+        iterations = args['num_epochs'] * max([len(loader) for loader in train_loaders.values()])
     # start training
+    logger.info('Training started from {} iteration'.format(start_iteration))
     start_time = time.time()
-    for it in range(1, iterations + 1):
+    for it in range(start_iteration, iterations + 1):
 
         for agent_name, agent in network.items():
             agent.make_iteration()
@@ -216,18 +239,29 @@ def main(args):
                 params = mixer.mix(params, agent=agent_name)
                 agent.load_flatten_params_to_model(params)
 
-        if it % args['stat_freq'] == 0:
-            logger.info('Iteration: {}'.format(it))
+        if it % args['stat_freq'] == 0 or it == iterations:
+            logger.info('Iteration: {} / {}'.format(it, iterations))
             for agent_name, agent in network.items():
                 agent.test()
             save_params_statistics(network=network, stats=global_statistic)
 
             iteration_time = time.time() - start_time
-            global_statistic.add('iteration_time', iteration_time)
-            global_statistic.dump_to_file()
+            global_statistic.add('iterations_time', iteration_time).dump_to_file()
             elapsed_time += iteration_time
             logger.info('Elapsed time : {}:{:02d}:{:02d}'.format(*get_hms(elapsed_time)))
             start_time = time.time()
+
+            save_checkpoint({
+                'iteration': it,
+            }, filename=args['save_path'] / 'global_statistic.th')
+            for agent_name, agent in network.items():
+                save_checkpoint({
+                    'model': agent.model.state_dict(),
+                    'optimizer': agent.optimizer.state_dict(),
+                    'lr_scheduler': agent.lr_scheduler.state_dict(),
+                    '_buffer_stat': agent._buffer_stat,
+                }, filename=args['save_path'] / '{}.th'.format(agent_name))
+                agent.stats.dump_to_file()
 
     logger.info('FINISH')
 
