@@ -13,6 +13,7 @@ import time
 import pickle
 
 from consensus_simple.mixer import Mixer
+from consensus_simple.weighted_mixer import WeightedMixer
 from consensus_simple.utils import *
 from consensus_simple.agent import Agent
 from consensus_simple.statistic_collector import StatisticCollector
@@ -144,7 +145,9 @@ def main(args):
     ]
     for arg in required_args:
         if arg not in args:
-            ValueError('Argument {} must be in args'.format(arg))
+            raise ValueError('Argument {} must be in args'.format(arg))
+    if 'weights' in args and not isinstance(args['consensus_freqs'], int):
+        raise ValueError('If "weights" in args, consensus_freqs must be int.')
 
     topology = args['topology']
     logger = args['logger']
@@ -158,7 +161,15 @@ def main(args):
         global_statistic = StatisticCollector.load_from_file(args['save_path'] / 'global_statistic')
         logger.info('StatisticCollector successfully loaded from checkpoint')
         start_iteration = checkpoint['iteration'] + 1
+        mixer = checkpoint['mixer']
+        logger.info('Mixer successfully loaded from checkpoint')
     else:
+        if 'weights' in args:
+            mixer = WeightedMixer(topology, logger, args['weights'])
+        else:
+            mixer = Mixer(topology, logger)
+        logger.info('Mixer successfully prepared')
+
         global_statistic = StatisticCollector('global_statistic',
                                               logger=logger,
                                               save_path=args['save_path'] / 'global_statistic')
@@ -174,9 +185,6 @@ def main(args):
 
     models = get_resnet20_models(args)
     logger.info('{} Models successfully prepared'.format(len(models)))
-
-    mixer = Mixer(topology, logger)
-    logger.info('Mixer successfully prepared')
 
     elapsed_time += time.time() - start_time
     logger.info('Preparing took {}:{:02d}:{:02d}'.format(*get_hms(elapsed_time)))
@@ -227,17 +235,26 @@ def main(args):
         for agent_name, agent in network.items():
             agent.make_iteration()
 
-        # passing parameters of neighbors
-        for agent_name, agent in network.items():
-            if it % consensus_freqs[agent_name] == 0:
-                for neighbor_name in topology[agent_name]:
-                    agent.set_consensus_params(neighbor_name, network[neighbor_name].get_flatten_params())
+        if 'weights' in args:
+            if it % consensus_freqs == 0:
+                agents_params = {}
+                for agent_name, agent in network.items():
+                    agents_params[agent_name] = agent.get_flatten_params()
+                agents_params = mixer.mix(agents_params)
+                for agent_name, agent in network.items():
+                    agent.load_flatten_params_to_model(agents_params[agent_name])
+        else:
+            # passing parameters of neighbors
+            for agent_name, agent in network.items():
+                if it % consensus_freqs[agent_name] == 0:
+                    for neighbor_name in topology[agent_name]:
+                        agent.set_consensus_params(neighbor_name, network[neighbor_name].get_flatten_params())
 
-        for agent_name, agent in network.items():
-            if it % consensus_freqs[agent_name] == 0:
-                params = agent.get_params_for_averaging()
-                params = mixer.mix(params, agent=agent_name)
-                agent.load_flatten_params_to_model(params)
+            for agent_name, agent in network.items():
+                if it % consensus_freqs[agent_name] == 0:
+                    params = agent.get_params_for_averaging()
+                    params = mixer.mix(params, agent=agent_name)
+                    agent.load_flatten_params_to_model(params)
 
         if it % args['stat_freq'] == 0 or it == iterations:
             logger.info('Iteration: {} / {}'.format(it, iterations))
@@ -253,7 +270,9 @@ def main(args):
 
             save_checkpoint({
                 'iteration': it,
+                'mixer': mixer,
             }, filename=args['save_path'] / 'global_statistic.th')
+
             for agent_name, agent in network.items():
                 save_checkpoint({
                     'model': agent.model.state_dict(),
