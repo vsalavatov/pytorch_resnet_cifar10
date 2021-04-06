@@ -1,4 +1,4 @@
-from copy import copy
+from copy import deepcopy
 from consensus_simple.mixer import Mixer
 
 
@@ -10,21 +10,27 @@ def _normalize_weights(weights):
 
 
 class WeightedMixer(Mixer):
-    def __init__(self, topology, logger, weights, dev_metric=None):
+    def __init__(self, topology, logger, weights, lr_schedule, lr, dev_metric=None):
         super().__init__(topology, logger, dev_metric=dev_metric)
-        self.weights = _normalize_weights(copy(weights))
+        self.weights = _normalize_weights(deepcopy(weights))
+        self.lr_schedule = lr_schedule
+        self.lr = lr
 
-    def mix(self, agents_params):
-        return self._mix_params_once(agents_params)
+    def _calc_lr(self, iteration):
+        return self.lr * self.lr_schedule(iteration)
 
-    def _mix_params_once(self, agents_params):
+    def mix(self, agents_params, iteration):
+        lr = self._calc_lr(iteration)
+        return self._mix_params_once(agents_params, lr)
+
+    def _mix_params_once(self, agents_params, lr):
         # [agent_name]: params
         result_params = {}
-        new_weights = copy(self.weights)
         for agent_name in agents_params:
-            new_params = sum(self.weights[neighbor]*agents_params[neighbor] for neighbor in self.topology[agent_name])
-            new_weights[agent_name] = sum(self.weights[neighbor] for neighbor in self.topology[agent_name])
-            new_params = new_params / new_weights[agent_name]
+            new_params = deepcopy(agents_params[agent_name])
+            diff_sum = lr * sum(agents_params[neighbor] - agents_params[agent_name]
+                                for neighbor in self.topology[agent_name]
+                                if neighbor != agent_name)
+            new_params = new_params + diff_sum / self.weights[agent_name]
             result_params[agent_name] = new_params
-        self.weights = _normalize_weights(new_weights)
         return result_params

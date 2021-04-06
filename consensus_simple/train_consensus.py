@@ -148,6 +148,10 @@ def main(args):
             raise ValueError('Argument {} must be in args'.format(arg))
     if 'weights' in args and not isinstance(args['consensus_freqs'], int):
         raise ValueError('If "weights" in args, consensus_freqs must be int.')
+    if 'weights' in args:
+        for arg in ['consensus_lr_schedule', 'consensus_lr']:
+            if arg not in args:
+                raise ValueError('If "weights" in args, argument {} must be in args too'.format(arg))
 
     topology = args['topology']
     logger = args['logger']
@@ -165,7 +169,11 @@ def main(args):
         logger.info('Mixer successfully loaded from checkpoint')
     else:
         if 'weights' in args:
-            mixer = WeightedMixer(topology, logger, args['weights'])
+            mixer = WeightedMixer(topology,
+                                  logger,
+                                  args['weights'],
+                                  args['consensus_lr_schedule'],
+                                  args['consensus_lr'])
         else:
             mixer = Mixer(topology, logger)
         logger.info('Mixer successfully prepared')
@@ -240,7 +248,7 @@ def main(args):
                 agents_params = {}
                 for agent_name, agent in network.items():
                     agents_params[agent_name] = agent.get_flatten_params()
-                agents_params = mixer.mix(agents_params)
+                agents_params = mixer.mix(agents_params, iteration=it)
                 for agent_name, agent in network.items():
                     agent.load_flatten_params_to_model(agents_params[agent_name])
         else:
