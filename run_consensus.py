@@ -21,6 +21,8 @@ parser.add_argument('--validation-agents', type=str, help='e.g. --validation-age
 parser.add_argument('--consensus-freq', dest='consensus_frequency', type=int, default=1,
                         help='freq>0 -> do averaging <freq> times per batch, '
                              'freq<0 -> do averaging once per (-freq) batches')
+parser.add_argument('--telemetry-freq-per-epoch', dest='telemetry_freq_per_epoch', type=int, default=3,
+                        help='how many times to send telemetry to master per epoch')
 # parser.add_argument('--use-consensus-rounds', dest='use_consensus_rounds', action='store_true',
 #                     help='do consensus rounds instead of fixed number of consensus iterations')
 # parser.add_argument('--consensus-rounds-precision', dest='consensus_rounds_precision', type=float, default=1e-4)
@@ -142,6 +144,8 @@ async def run(args):
 
                               + (['--consensus-freq', f'{args.consensus_frequency}']
                                  if args.consensus_frequency is not None else [])
+                              + (['--telemetry-freq-per-epoch', f'{args.telemetry_freq_per_epoch}']
+                                 if args.telemetry_freq_per_epoch is not None else [])
                               # + (['--use-consensus-rounds'] if args.use_consensus_rounds is not None else [])
                               # + (['--consensus-rounds-precision', f'{args.consensus_rounds_precision}']
                               #    if args.consensus_rounds_precision is not None else [])

@@ -61,10 +61,23 @@ def plot_loop(names, paths, title, save=None, param_dev=None):
             plt_val_acc.plot(range(len(val_acc)), val_acc, label=label)
 
         if param_dev_stats:
-            batches_per_epoch = next(iter(param_dev_stats.crop('batches_per_epoch')[0].values()))
+            telemetries_per_epoch = next(iter(param_dev_stats.crop('telemetries_per_epoch')[0].values()))
             deviation = param_dev_stats.crop('coef_of_var')
-            plt_param_dev.plot([b / batches_per_epoch for b in range(len(deviation))],
+            plt_param_dev.plot([b / telemetries_per_epoch for b in range(len(deviation))],
                                 deviation, label='max coef. of variation')
+            try:
+                cv_pctls = param_dev_stats.crop('coef_of_var_percentiles')
+                grouped_by_pcts = dict()
+                for record in cv_pctls:
+                    for (pct, val) in record:
+                        if pct not in grouped_by_pcts.keys():
+                            grouped_by_pcts[pct] = []
+                        grouped_by_pcts[pct].append(val)
+                for pct, vals in grouped_by_pcts.items():
+                    plt_param_dev.plot([b / telemetries_per_epoch for b in range(len(vals))],
+                                       vals, label='coef. of variation ({} percentile)'.format(pct))
+            except:
+                pass
 
         plt_loss.legend()
         plt_val_acc.legend()

@@ -16,8 +16,6 @@ import torch.nn as nn
 import torch.nn.parallel
 import torch.optim
 import torch.utils.data
-import torchvision.datasets as datasets
-import torchvision.transforms as transforms
 
 sys.path.append('./distributed-learning/')
 
@@ -53,6 +51,8 @@ def make_config_parser():
     parser.add_argument('--consensus-freq', dest='consensus_frequency', type=int, default=1,
                         help='freq>0 -> do averaging <freq> times per batch, '
                              'freq<0 -> do averaging once per (-freq) batches')
+    parser.add_argument('--telemetry-freq-per-epoch', dest='telemetry_freq_per_epoch', type=int, default=3,
+                        help='how many times to send telemetry to master per epoch')
     # parser.add_argument('--use-consensus-rounds', dest='use_consensus_rounds', action='store_true')
     # parser.add_argument('--consensus-rounds-precision', dest='consensus_rounds_precision', type=float, default=1e-4)
     parser.add_argument('--no-validation', dest='no_validation', action='store_true')
@@ -218,7 +218,7 @@ async def main(cfg):
         validate(cfg, val_loader, model, criterion)
         return
 
-    await consensus_specific.agent.send_telemetry(TelemetryAgentGeneralInfo(batches_per_epoch=len(train_loader)))
+    await consensus_specific.agent.send_telemetry(TelemetryAgentGeneralInfo(telemetries_per_epoch=cfg.telemetry_freq_per_epoch))
 
     for epoch in range(cfg.start_epoch, cfg.epochs):
         # train for one epoch
@@ -272,6 +272,13 @@ async def train(consensus_specific, train_loader, model, criterion, optimizer, e
 
     start = time.time()
     end = time.time()
+
+    def should_send_telemetry(idx, total_batches):
+        if consensus_specific.cfg.telemetry_freq_per_epoch <= 0:
+            return False
+        skip_length = max(1, int(total_batches // consensus_specific.cfg.telemetry_freq_per_epoch))
+        return idx % skip_length == 0
+
     for i, (input, target) in enumerate(train_loader):
         consensus_specific.batch_counter += 1
         # measure data loading time
@@ -306,10 +313,11 @@ async def train(consensus_specific, train_loader, model, criterion, optimizer, e
         batch_time.update(time.time() - end)
         end = time.time()
 
-        await consensus_specific.agent.send_telemetry(TelemetryModelParameters(
-                                                          consensus_specific.batch_counter,
-                                                          consensus_specific.dump_params(model)
-                                                      ))
+        if should_send_telemetry(i, len(train_loader)):
+            await consensus_specific.agent.send_telemetry(TelemetryModelParameters(
+                                                              consensus_specific.batch_counter,
+                                                              consensus_specific.dump_params(model)
+                                                          ))
 
         if i % cfg.print_freq == 0:
             if cfg.logging:
