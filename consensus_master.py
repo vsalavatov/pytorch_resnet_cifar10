@@ -62,8 +62,8 @@ class ResNet20TelemetryProcessor(TelemetryProcessor):
         elif isinstance(payload, TelemetryAgentGeneralInfo):
             self.agent_general_info[token] = payload
             if len(self.agent_general_info) == len(self.agents):
-                self.stats.add('batches_per_epoch',
-                               {agent: self.agent_general_info[agent].batches_per_epoch for agent in self.agents})
+                self.stats.add('telemetries_per_epoch',
+                               {agent: self.agent_general_info[agent].telemetries_per_epoch for agent in self.agents})
                 self.stats.dump_to_file()
         else:
             raise ValueError(f'Got unsupported payload from {token}: {payload!r}')

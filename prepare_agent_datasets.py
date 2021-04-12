@@ -31,14 +31,16 @@ def get_val_dataset():
     return __val_dataset
 
 
-def get_agent_val_loader(token, workers=2):
+def get_agent_val_loader(token, workers=0):
+    # workers > 0 might cause deadlock
     return torch.utils.data.DataLoader(
         get_val_dataset(),
         batch_size=128, shuffle=False,
         num_workers=workers, pin_memory=True)
 
 
-def get_agent_train_loader(token, batch_size, workers=2):
+def get_agent_train_loader(token, batch_size, workers=0):
+    # workers > 0 might cause deadlock
     inds = torch.load('data/{}/inds.torch'.format(token))
     ds = get_train_dataset()
     return torch.utils.data.DataLoader(

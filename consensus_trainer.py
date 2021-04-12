@@ -276,7 +276,7 @@ async def train(consensus_specific, train_loader, model, criterion, optimizer, e
     def should_send_telemetry(idx, total_batches):
         if consensus_specific.cfg.telemetry_freq_per_epoch <= 0:
             return False
-        skip_length = max(1, int(total_batches // consensus_specific.cfg.telemetry_freq_per_epoch))
+        skip_length = max(1, int((total_batches + consensus_specific.cfg.telemetry_freq_per_epoch - 1) // consensus_specific.cfg.telemetry_freq_per_epoch))
         return idx % skip_length == 0
 
     for i, (input, target) in enumerate(train_loader):
