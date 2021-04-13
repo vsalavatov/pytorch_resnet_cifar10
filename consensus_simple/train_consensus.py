@@ -97,7 +97,11 @@ def get_optimizer(args, model):
                            weight_decay=args['weight_decay'])
 
 
-def get_lr_scheduler(optimizer, lr_schedule):
+def get_lr_scheduler(optimizer, lr_schedule, weight=None):
+    if weight:
+        def schedule(x):
+            return weight * lr_schedule(x)
+        return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=schedule)
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_schedule)
 
 
@@ -205,7 +209,11 @@ def main(args):
         model = models[agent_name]
         optimizer = get_optimizer(args, model)
         criterion = get_criterion()
-        lr_scheduler = get_lr_scheduler(optimizer, lr_schedule=args['lr_schedule'])
+        if 'lsr_weights' in args:
+            lr_scheduler = get_lr_scheduler(optimizer, lr_schedule=args['lr_schedule'],
+                                            weight=args['lsr_weights'][agent_name])
+        else:
+            lr_scheduler = get_lr_scheduler(optimizer, lr_schedule=args['lr_schedule'])
         stats = StatisticCollector(agent_name,
                                    logger=logger,
                                    save_path=args['save_path'] / str(agent_name))
