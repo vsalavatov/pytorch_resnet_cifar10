@@ -19,6 +19,8 @@ from consensus_simple.agent import Agent
 from consensus_simple.statistic_collector import StatisticCollector
 
 SEED = 42
+np.random.seed(SEED)
+torch.manual_seed(SEED)
 
 
 def get_cifar10_train_loaders(args):
@@ -115,6 +117,7 @@ def save_params_statistics(network, stats):
               {agent_name: np.linalg.norm(p, ord=2) for agent_name, p in deviation_params.items()})
     stats.add('param_deviation_Linf',
               {agent_name: np.linalg.norm(p, ord=np.inf) for agent_name, p in deviation_params.items()})
+
     stats.dump_to_file()
 
 
@@ -294,7 +297,4 @@ def main(args):
 
 
 if __name__ == '__main__':
-    np.random.seed(SEED)
-    torch.manual_seed(SEED)
-
-    main({})
+    pass
