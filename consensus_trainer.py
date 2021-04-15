@@ -397,6 +397,8 @@ def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     """
     Save the training model
     """
+    if os.path.isfile(filename):
+        os.replace(filename, filename + '.bak')
     torch.save(state, filename)
 
 
