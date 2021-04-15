@@ -1,6 +1,7 @@
 import signal
 import argparse
 import time
+import os
 import matplotlib.pyplot as plt
 from IPython.display import display, clear_output
 from model_statistics import ModelStatistics
@@ -12,7 +13,7 @@ class Finish:
 
     def __call__(self, signum, stack):
         if self.__finished:
-            exit()
+            os.exit()
         self.__finished = True
 
     def finished(self):
@@ -39,7 +40,6 @@ def plot_loop(names, paths, title, save=None, param_dev=None):
             fig, (plt_loss, plt_val_acc) = plt.subplots(2, 1)
             fig.set_size_inches(18, 20 * 0.7)
         fig.suptitle(title, fontsize=20)
-        fig.tight_layout()
 
         plt_loss.set_ylabel('Loss (local)')
         plt_loss.set_yscale('log')
@@ -56,15 +56,23 @@ def plot_loop(names, paths, title, save=None, param_dev=None):
         for label, stat in stats.items():
             loss = stat.crop('train_loss')
             val_acc = stat.crop('val_precision')
+            
+            fmt = {}
+            if label.lower().find('consensus') != -1:
+                fmt['linestyle'] = 'dashed'
+                fmt['linewidth'] = 1.1
+            else:
+                fmt['linestyle'] = None
+                fmt['linewidth'] = 1.5
 
-            plt_loss.plot(range(len(loss)), loss, label=label)
-            plt_val_acc.plot(range(len(val_acc)), val_acc, label=label)
+            plt_loss.plot(range(len(loss)), loss, label=label, **fmt)
+            plt_val_acc.plot(range(len(val_acc)), val_acc, label=label, **fmt)
 
         if param_dev_stats:
             telemetries_per_epoch = next(iter(param_dev_stats.crop('telemetries_per_epoch')[0].values()))
             deviation = param_dev_stats.crop('coef_of_var')
             plt_param_dev.plot([b / telemetries_per_epoch for b in range(len(deviation))],
-                                deviation, label='max coef. of variation')
+                                deviation, label='max')
             try:
                 cv_pctls = param_dev_stats.crop('coef_of_var_percentiles')
                 grouped_by_pcts = dict()
@@ -73,9 +81,10 @@ def plot_loop(names, paths, title, save=None, param_dev=None):
                         if pct not in grouped_by_pcts.keys():
                             grouped_by_pcts[pct] = []
                         grouped_by_pcts[pct].append(val)
-                for pct, vals in grouped_by_pcts.items():
+                for pct, vals in reversed(grouped_by_pcts.items()):
+                    if pct < 75: continue
                     plt_param_dev.plot([b / telemetries_per_epoch for b in range(len(vals))],
-                                       vals, label='coef. of variation ({} percentile)'.format(pct))
+                                       vals, label='percentile={}'.format(pct))
             except:
                 pass
 
@@ -83,7 +92,8 @@ def plot_loop(names, paths, title, save=None, param_dev=None):
         plt_val_acc.legend()
         if param_dev_stats:
             plt_param_dev.legend()
-
+            
+        fig.tight_layout()
         plt.close(fig)
         clear_output(wait=True)
         display(fig)
