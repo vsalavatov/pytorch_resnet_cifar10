@@ -47,6 +47,7 @@ def make_config_parser():
     parser.add_argument('--enable-log', dest='logging', action='store_true')
     parser.add_argument('--total-agents', required=True, type=int)
     parser.add_argument('--debug-consensus', dest='debug', action='store_true')
+    parser.add_argument('--do-resume', dest='do_resume', action='store_true')
     parser.add_argument('--use-prepared-data', dest='data_prepared', action='store_true')
     parser.add_argument('--consensus-freq', dest='consensus_frequency', type=int, default=1,
                         help='freq>0 -> do averaging <freq> times per batch, '
@@ -155,24 +156,25 @@ async def main(cfg):
     statistics = ModelStatistics(cfg.agent_token)
 
     # optionally resume from a checkpoint
-    if cfg.resume:
-        if os.path.isfile(cfg.resume):
+    if cfg.do_resume:
+        checkpoint_path = os.path.join(cfg.save_dir, 'checkpoint.th')
+        if os.path.isfile(checkpoint_path):
             if cfg.logging:
-                print("=> loading checkpoint '{}'".format(cfg.resume))
-            checkpoint = torch.load(cfg.resume)
+                print("=> loading checkpoint '{}'".format(checkpoint_path))
+            checkpoint = torch.load(checkpoint_path)
             cfg.start_epoch = checkpoint['epoch']
             best_prec1 = checkpoint['best_prec1']
             if 'statistics' in checkpoint.keys():
                 statistics = pickle.loads(checkpoint['statistics'])
-            elif os.path.isfile(os.path.join(cfg.resume, 'statistics.pickle')):
-                statistics = ModelStatistics.load_from_file(os.path.join(cfg.resume, 'statistics.pickle'))
+            elif os.path.isfile(os.path.join(cfg.save_dir, 'statistics.pickle')):
+                statistics = ModelStatistics.load_from_file(os.path.join(cfg.save_dir, 'statistics.pickle'))
             model.load_state_dict(checkpoint['state_dict'])
             if cfg.logging:
                 print("=> loaded checkpoint '{}' (epoch {})"
-                      .format(cfg.evaluate, checkpoint['epoch']))
+                      .format(checkpoint_path, checkpoint['epoch']))
         else:
             if cfg.logging:
-                print("=> no checkpoint found at '{}'".format(cfg.resume))
+                print("=> no checkpoint found at '{}'".format(checkpoint_path))
 
     cudnn.benchmark = True
 
@@ -219,6 +221,9 @@ async def main(cfg):
         return
 
     await consensus_specific.agent.send_telemetry(TelemetryAgentGeneralInfo(telemetries_per_epoch=cfg.telemetry_freq_per_epoch))
+
+    for epoch in range(0, cfg.start_epoch):
+        lr_scheduler.step()
 
     for epoch in range(cfg.start_epoch, cfg.epochs):
         # train for one epoch

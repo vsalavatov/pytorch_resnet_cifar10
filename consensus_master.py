@@ -24,11 +24,13 @@ class TelemetryAgentGeneralInfo:
 
 
 class ResNet20TelemetryProcessor(TelemetryProcessor):
-    def __init__(self, destination_path, topology):
+    def __init__(self, destination_path, topology, resume=False):
         self.destination_path = destination_path
         self.agents = list(set([uv[0] for uv in topology] + [uv[1] for uv in topology]))
 
-        self.stats = ModelStatistics('MASTER TELEMETRY', save_path=destination_path)
+        self.stats = ModelStatistics.load_from_file(destination_path) if resume \
+            else ModelStatistics('MASTER TELEMETRY', save_path=destination_path)
+
         self.agent_params_by_iter = dict()
         self.agent_general_info = dict()
 
