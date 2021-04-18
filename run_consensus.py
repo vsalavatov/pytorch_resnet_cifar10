@@ -1,7 +1,9 @@
 import argparse
 import asyncio
+import threading
 import sys
 import os
+import time
 
 sys.path.append('./distributed-learning/')
 from utils.consensus_tcp import ConsensusMaster
@@ -21,6 +23,8 @@ parser.add_argument('--validation-agents', type=str, help='e.g. --validation-age
 parser.add_argument('--consensus-freq', dest='consensus_frequency', type=int, default=1,
                         help='freq>0 -> do averaging <freq> times per batch, '
                              'freq<0 -> do averaging once per (-freq) batches')
+parser.add_argument('--telemetry-freq-per-epoch', dest='telemetry_freq_per_epoch', type=int, default=3,
+                        help='how many times to send telemetry to master per epoch')
 # parser.add_argument('--use-consensus-rounds', dest='use_consensus_rounds', action='store_true',
 #                     help='do consensus rounds instead of fixed number of consensus iterations')
 # parser.add_argument('--consensus-rounds-precision', dest='consensus_rounds_precision', type=float, default=1e-4)
@@ -35,6 +39,8 @@ parser.add_argument('--master-host', default='127.0.0.1', type=str)
 parser.add_argument('--master-port', default=8999, type=int)
 parser.add_argument('--agent-start-port', default=11000, type=int)
 parser.add_argument('--debug', dest='debug', action='store_true')
+parser.add_argument('--print-freq', '-p', default=50, type=int,
+                    metavar='N', help='print frequency (default: 50)')
 
 
 def make_topology(args):
@@ -114,21 +120,33 @@ def extract_validation_agents(args, total_agents):
         raise e
 
 
-async def run(args):
+def run(args):
     topology, total_agents = make_topology(args)
 
-    telemetry_processor = consensus_master.ResNet20TelemetryProcessor(
-        os.path.join(os.environ['CHECKPOINT_PATH'], 'telemetry.pickle'),
-        topology)
-    master = ConsensusMaster(topology, '127.0.0.1', args.master_port,
-                             debug=True if args.debug else False,
-                             telemetry_processor=telemetry_processor)
-    master_task = asyncio.create_task(master.serve_forever())
-    await asyncio.sleep(1)  # wait until master initialize
+    def make_master_task(loop):
+        telemetry_processor = consensus_master.ResNet20TelemetryProcessor(
+            os.path.join(os.environ['CHECKPOINT_PATH'], 'telemetry.pickle'),
+            topology)
+        master = ConsensusMaster(topology, '127.0.0.1', args.master_port,
+                                 debug=True if args.debug else False,
+                                 telemetry_processor=telemetry_processor)
+        return master.serve_forever()
+
+    def run_task(loop, task):
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(task)
+        loop.close()
+
+    master_loop = asyncio.new_event_loop()
+    master_task = make_master_task(master_loop)
+    master_thread = threading.Thread(target=run_task, args=(master_loop, master_task))
+    master_thread.start()
+
+    time.sleep(2.0)  # let master initialize
 
     validation_agents = extract_validation_agents(args, total_agents)
 
-    agent_tasks = []
+    agent_threads = []
     for token in range(total_agents):
         cfg = consensus_trainer.make_config_parser()
         agent_args = cfg.parse_args([
@@ -139,11 +157,14 @@ async def run(args):
                                   '--master-port', f'{args.master_port}',
                                   '--total-agents', f'{total_agents}',
                                   '--save-dir', os.environ['CHECKPOINT_PATH'],
-                                  '--use-prepared-data'
+                                  '--use-prepared-data',
+                                  '--print-freq', f'{args.print_freq}'
                               ]
 
                               + (['--consensus-freq', f'{args.consensus_frequency}']
                                  if args.consensus_frequency is not None else [])
+                              + (['--telemetry-freq-per-epoch', f'{args.telemetry_freq_per_epoch}']
+                                 if args.telemetry_freq_per_epoch is not None else [])
                               # + (['--use-consensus-rounds'] if args.use_consensus_rounds is not None else [])
                               # + (['--consensus-rounds-precision', f'{args.consensus_rounds_precision}']
                               #    if args.consensus_rounds_precision is not None else [])
@@ -157,10 +178,16 @@ async def run(args):
                               + (['--debug-consensus'] if args.debug else [])
                               + ([] if token in validation_agents else ['--no-validation'])
                               )
-        agent_tasks.append(consensus_trainer.main(agent_args))
-    await asyncio.wait(agent_tasks)
-    master_task.cancel()
+        loop = asyncio.new_event_loop()
+        thread = threading.Thread(target=run_task, args=(loop, consensus_trainer.main(agent_args)))
+        thread.start()
+        agent_threads.append(thread)
+
+    for t in agent_threads:
+        t.join()
+    master_loop.call_soon_threadsafe(master_loop.stop)
+    master_thread.join()
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    asyncio.run(run(args))
+    run(args)

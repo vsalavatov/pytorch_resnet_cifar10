@@ -155,7 +155,6 @@ def main():
         return
 
     for epoch in range(args.start_epoch, args.epochs):
-        statistics.set_epoch(epoch)
         # train for one epoch
         print('current lr {:.5e}'.format(optimizer.param_groups[0]['lr']))
         statistics.add('train_begin_timestamp', time.time())

@@ -20,7 +20,7 @@ class TelemetryModelParameters:
 
 @dataclass
 class TelemetryAgentGeneralInfo:
-    batches_per_epoch: int
+    telemetries_per_epoch: int
 
 
 class ResNet20TelemetryProcessor(TelemetryProcessor):
@@ -49,18 +49,21 @@ class ResNet20TelemetryProcessor(TelemetryProcessor):
                                {agent: np.linalg.norm(deviation_params[agent], ord=np.inf) for agent in self.agents})
 
                 arr_params = np.array([params[agent] for agent in self.agents])
-                max_cv = np.linalg.norm(
-                    np.std(arr_params, axis=0) / np.mean(arr_params, axis=0),
-                    ord=np.inf)
-                self.stats.add('coef_of_var', max_cv)
+                cvar = np.std(arr_params, axis=0) / np.mean(arr_params, axis=0)
+                max_cvar = np.max(cvar)
+                percentiles = (25, 50, 75, 95, 99)
+                cvar_pctls = np.percentile(cvar, (25, 50, 75, 95, 99))
+
+                self.stats.add('coef_of_var', max_cvar)
+                self.stats.add('coef_of_var_percentiles', list(zip(percentiles, cvar_pctls)))
 
                 self.stats.dump_to_file()
                 del self.agent_params_by_iter[payload.batch_number]
         elif isinstance(payload, TelemetryAgentGeneralInfo):
             self.agent_general_info[token] = payload
             if len(self.agent_general_info) == len(self.agents):
-                self.stats.add('batches_per_epoch',
-                               {agent: self.agent_general_info[agent].batches_per_epoch for agent in self.agents})
+                self.stats.add('telemetries_per_epoch',
+                               {agent: self.agent_general_info[agent].telemetries_per_epoch for agent in self.agents})
                 self.stats.dump_to_file()
         else:
             raise ValueError(f'Got unsupported payload from {token}: {payload!r}')
