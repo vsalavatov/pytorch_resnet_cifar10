@@ -109,8 +109,8 @@ def save_params_statistics(network, stats):
     # variation
     agents_params = {agent_name: agent.get_flatten_params() for agent_name, agent in network.items()}
     params = np.array(list(agents_params.values()))
-    max_var = np.linalg.norm(params.std(axis=0) / params.mean(axis=0), ord=np.inf)
-    stats.add('coef_of_var', max_var)
+    mean_var = np.mean(params.std(axis=0) / np.abs(params.mean(axis=0)))
+    stats.add('coef_of_var', mean_var)
 
     # deviation (L_1, L_2, L_inf)
     avg_params = params.mean(axis=0)
