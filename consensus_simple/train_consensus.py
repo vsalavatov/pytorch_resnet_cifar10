@@ -276,7 +276,11 @@ def main(args):
         if it % args['stat_freq'] == 0 or it == iterations:
             logger.info('Iteration: {} / {}'.format(it, iterations))
             for agent_name, agent in network.items():
-                agent.test()
+                if 'agents_to_validate' not in args \
+                        or args['agents_to_validate'] == 'all' \
+                        or agent_name in args['agents_to_validate'] \
+                        or it == iterations:
+                    agent.test()
             save_params_statistics(network=network, stats=global_statistic)
 
             iteration_time = time.time() - start_time
