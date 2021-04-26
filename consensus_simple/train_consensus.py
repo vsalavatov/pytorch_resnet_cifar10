@@ -122,8 +122,6 @@ def save_params_statistics(network, stats):
     stats.add('param_deviation_Linf',
               {agent_name: np.linalg.norm(p, ord=np.inf) for agent_name, p in deviation_params.items()})
 
-    stats.dump_to_file()
-
 
 def main(args):
     elapsed_time = 0
