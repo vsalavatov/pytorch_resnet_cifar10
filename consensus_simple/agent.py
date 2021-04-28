@@ -86,7 +86,6 @@ class Agent:
 
             lr = self.optimizer.state_dict()['param_groups'][0]['lr']
             self.stats.add('lr', lr)
-            self.stats.dump_to_file()
 
         self.lr_scheduler.step()
 

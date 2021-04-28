@@ -19,6 +19,8 @@ from consensus_simple.agent import Agent
 from consensus_simple.statistic_collector import StatisticCollector
 
 SEED = 42
+np.random.seed(SEED)
+torch.manual_seed(SEED)
 
 
 def get_cifar10_train_loaders(args):
@@ -95,7 +97,11 @@ def get_optimizer(args, model):
                            weight_decay=args['weight_decay'])
 
 
-def get_lr_scheduler(optimizer, lr_schedule):
+def get_lr_scheduler(optimizer, lr_schedule, weight=None):
+    if weight:
+        def schedule(x):
+            return weight * lr_schedule(x)
+        return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=schedule)
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_schedule)
 
 
@@ -103,8 +109,8 @@ def save_params_statistics(network, stats):
     # variation
     agents_params = {agent_name: agent.get_flatten_params() for agent_name, agent in network.items()}
     params = np.array(list(agents_params.values()))
-    max_var = np.linalg.norm(params.std(axis=0) / params.mean(axis=0), ord=np.inf)
-    stats.add('coef_of_var', max_var)
+    mean_var = np.mean(params.std(axis=0) / np.abs(params.mean(axis=0)))
+    stats.add('coef_of_var', mean_var)
 
     # deviation (L_1, L_2, L_inf)
     avg_params = params.mean(axis=0)
@@ -115,7 +121,6 @@ def save_params_statistics(network, stats):
               {agent_name: np.linalg.norm(p, ord=2) for agent_name, p in deviation_params.items()})
     stats.add('param_deviation_Linf',
               {agent_name: np.linalg.norm(p, ord=np.inf) for agent_name, p in deviation_params.items()})
-    stats.dump_to_file()
 
 
 def main(args):
@@ -202,7 +207,11 @@ def main(args):
         model = models[agent_name]
         optimizer = get_optimizer(args, model)
         criterion = get_criterion()
-        lr_scheduler = get_lr_scheduler(optimizer, lr_schedule=args['lr_schedule'])
+        if 'lsr_weights' in args:
+            lr_scheduler = get_lr_scheduler(optimizer, lr_schedule=args['lr_schedule'],
+                                            weight=args['lsr_weights'][agent_name])
+        else:
+            lr_scheduler = get_lr_scheduler(optimizer, lr_schedule=args['lr_schedule'])
         stats = StatisticCollector(agent_name,
                                    logger=logger,
                                    save_path=args['save_path'] / str(agent_name))
@@ -267,7 +276,11 @@ def main(args):
         if it % args['stat_freq'] == 0 or it == iterations:
             logger.info('Iteration: {} / {}'.format(it, iterations))
             for agent_name, agent in network.items():
-                agent.test()
+                if 'agents_to_validate' not in args \
+                        or args['agents_to_validate'] == 'all' \
+                        or agent_name in args['agents_to_validate'] \
+                        or it == iterations:
+                    agent.test()
             save_params_statistics(network=network, stats=global_statistic)
 
             iteration_time = time.time() - start_time
@@ -294,7 +307,4 @@ def main(args):
 
 
 if __name__ == '__main__':
-    np.random.seed(SEED)
-    torch.manual_seed(SEED)
-
-    main({})
+    pass
