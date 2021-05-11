@@ -23,16 +23,30 @@ np.random.seed(SEED)
 torch.manual_seed(SEED)
 
 
-def get_cifar10_train_loaders(args):
-    transform_train = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010)),
-    ])
-    trainset = torchvision.datasets.CIFAR10(root=args['dataset_dir'],
-                                            train=True, download=True,
-                                            transform=transform_train)
+def get_cifar_train_loaders(args):
+    dataset_name = args['dataset_name']
+    if dataset_name == 'cifar10':
+        transform_train = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010)),
+        ])
+        trainset = torchvision.datasets.CIFAR10(root=args['dataset_dir'],
+                                                train=True, download=True,
+                                                transform=transform_train)
+    elif dataset_name == 'cifar100':
+        transform_train = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.5071, 0.4867, 0.4408), std=(0.2675, 0.2565, 0.2761)),
+        ])
+        trainset = torchvision.datasets.CIFAR100(root=args['dataset_dir'],
+                                                 train=True, download=True,
+                                                 transform=transform_train)
+    else:
+        raise NotImplementedError
 
     agent_list = []
     dataset_sizes = []
@@ -53,27 +67,48 @@ def get_cifar10_train_loaders(args):
     return train_loaders
 
 
-def get_cifar10_test_loader(args):
-    transform_test = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010)),
-    ])
+def get_cifar_test_loader(args):
+    dataset_name = args['dataset_name']
+    if dataset_name == 'cifar10':
+        transform_test = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010)),
+        ])
 
-    testset = torchvision.datasets.CIFAR10(root=args['dataset_dir'],
-                                           train=False, download=False,
-                                           transform=transform_test)
+        testset = torchvision.datasets.CIFAR10(root=args['dataset_dir'],
+                                               train=False, download=False,
+                                               transform=transform_test)
+    elif dataset_name == 'cifar100':
+        transform_test = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.5071, 0.4867, 0.4408), std=(0.2675, 0.2565, 0.2761)),
+        ])
+
+        testset = torchvision.datasets.CIFAR100(root=args['dataset_dir'],
+                                                train=False, download=False,
+                                                transform=transform_test)
+    else:
+        raise NotImplementedError
 
     return torch.utils.data.DataLoader(testset, batch_size=args['test_batch_size'], shuffle=False, num_workers=2)
 
 
 def get_resnet20_models(args):
     topology = args['topology']
+    dataset_name = args['dataset_name']
+    if dataset_name == 'cifar10':
+        num_classes = 10
+    elif dataset_name == 'cifar100':
+        num_classes = 100
+    else:
+        raise NotImplementedError
+
     models = {}
 
     main_state_dict = None
 
     for agent in topology:
-        models[agent] = args['model']()
+        models[agent] = args['model'](num_classes)
         if args['equalize_start_params']:
             if main_state_dict is None:
                 main_state_dict = models[agent].state_dict()
@@ -190,10 +225,10 @@ def main(args):
         start_iteration = 1
 
     # preparing
-    test_loader = get_cifar10_test_loader(args)
+    test_loader = get_cifar_test_loader(args)
     logger.info('Test loader with length {} successfully prepared'.format(len(test_loader)))
 
-    train_loaders = get_cifar10_train_loaders(args)
+    train_loaders = get_cifar_train_loaders(args)
     logger.info('Train loaders successfully prepared')
 
     models = get_resnet20_models(args)
