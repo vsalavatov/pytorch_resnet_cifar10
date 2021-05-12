@@ -74,6 +74,23 @@ def make_topology(args):
                 raise ValueError('topology=expander => world size must be exact square')
             G = nx.generators.expanders.margulis_gabber_galil_graph(side)
             return [(side * u[0] + u[1], side * v[0] + v[1]) for u, v in G.edges()], n
+        elif args.topology == 'expander4':
+            import networkx as nx
+            import math
+            import numpy as np
+            graphs = []
+            alg_connectivities = []
+            while len(graphs) < 20:
+                G = nx.generators.random_graphs.random_regular_graph(4, n)
+                alg_connectivity = nx.linalg.algebraicconnectivity.algebraic_connectivity(G)
+                if alg_connectivity < math.sqrt(3) / 2:
+                    graphs.append([(u, v) for u, v in G.edges()])
+                    alg_connectivities.append(alg_connectivity)
+                #else:
+                #    print(f'Graph building failed: connectivity is {alg_connectivity} bigger than {math.sqrt(3) / 2}')
+            best_id = np.argmin(alg_connectivities)
+            print('best algebraic connectivity: ', alg_connectivities[best_id])
+            return graphs[best_id], n
         else:
             raise ValueError(bad_args_msg)
 

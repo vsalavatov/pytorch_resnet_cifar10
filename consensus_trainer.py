@@ -59,6 +59,7 @@ def make_config_parser():
     parser.add_argument('--no-validation', dest='no_validation', action='store_true')
     parser.add_argument('--use-lsr', dest='use_lsr', action='store_true')
     parser.add_argument('--warmup', dest='warmup', default=0, type=int)
+    parser.add_argument('--momentum-consensus', dest='momentum_consensus', action='store_true')
 
     parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                         help='number of data loading workers (default: 4)')
@@ -112,28 +113,79 @@ class ConsensusSpecific:
     def stop_consensus(self):
         self.agent_serve_task.cancel()
 
-    def dump_params(self, model):
-        return torch.cat([p.data.to(torch.float32).view(-1) for p in model.parameters()]).detach().clone().cpu().numpy()
+    def dump_params(self, model, optimizer_manager=None):
+        model_params = torch.cat([p.data.to(torch.float32).view(-1) for p in model.parameters()]).detach().clone().cpu().numpy()
+        if optimizer_manager is None:
+            return model_params
+        else:
+            optimizer_params = optimizer_manager.extract()
+            return np.concatenate([model_params, optimizer_params])
 
-    def load_params(self, model, params):
+    def load_params(self, model, params, optimizer_manager=None):
         used_params = 0
         for p in model.parameters():
             cnt_params = p.numel()
             p.data.copy_(torch.Tensor(params[used_params:used_params + cnt_params]).view(p.shape).to(p.dtype))
             used_params += cnt_params
+        if optimizer_manager is not None:
+            optimizer_manager.set(params[used_params:])
 
-    async def run_averaging(self, model):
+    async def run_averaging(self, model, optimizer=None):
+        if optimizer is not None:
+            optimizer_manager = MomentumBufferManager(optimizer)
+        else:
+            optimizer_manager = None
         if self.cfg.consensus_frequency < 0:
             if self.run_averaging_exec_count % (-self.cfg.consensus_frequency) == 0:
-                params = self.dump_params(model)
+                params = self.dump_params(model, optimizer_manager)
                 params = await self.agent.run_once(params)
-                self.load_params(model, params)
+                self.load_params(model, params, optimizer_manager)
         else:
-            params = self.dump_params(model)
+            params = self.dump_params(model, optimizer_manager)
             for _ in range(self.cfg.consensus_frequency):
                 params = await self.agent.run_once(params)
-            self.load_params(model, params)
+            self.load_params(model, params, optimizer_manager)
         self.run_averaging_exec_count += 1
+
+
+class MomentumBufferManager:
+    def __init__(self, optimizer):
+        self.optimizer = optimizer
+        self.shapes = []
+        self.sizes = []
+
+    def extract(self):
+        momentum_buffer_list = []
+        for group in self.optimizer.param_groups:
+            for p in group['params']:
+                if p.grad is not None:
+                    state = self.optimizer.state[p]
+                    if 'momentum_buffer' not in state:
+                        raise ValueError('Initialize momentum buffer before extract them')
+                    else:
+                        momentum_buffer_list.append(state['momentum_buffer'])
+
+        extracted_buf = []
+        for buf in momentum_buffer_list:
+            np_buf = buf.clone().detach().cpu().numpy()
+            self.shapes.append(np_buf.shape)
+            self.sizes.append(np_buf.size)
+            extracted_buf.append(np_buf.reshape(-1,))
+        return np.concatenate(extracted_buf)
+
+    def set(self, values):
+        used_params = 0
+        momentum_buffer_list = []
+        for i in range(len(self.sizes)):
+            np_buf = values[used_params: used_params + self.sizes[i]].reshape(self.shapes[i])
+            buf = torch.Tensor(np_buf).cuda()
+            momentum_buffer_list.append(buf)
+        curr_id = 0
+        for group in self.optimizer.param_groups:
+            for p in group['params']:
+                if p.grad is not None:
+                    self.optimizer.state[p]['momentum_buffer'] = momentum_buffer_list[curr_id].clone()
+                    curr_id += 1
 
 
 async def main(cfg):
@@ -175,11 +227,13 @@ async def main(cfg):
         else:
             if cfg.logging:
                 print("=> no checkpoint found at '{}'".format(checkpoint_path))
-
     cudnn.benchmark = True
 
     print('{}: Loading dataset...'.format(cfg.agent_token))
-    train_loader = get_agent_train_loader(cfg.agent_token, cfg.batch_size)
+    train_loader, num_data = get_agent_train_loader(cfg.agent_token, cfg.batch_size)
+    steps_in_one_iter = num_data//500 #TODO
+    print('{}: {} iters of consensus'.format(cfg.agent_token,
+     len(train_loader)//steps_in_one_iter+ bool(len(train_loader) % steps_in_one_iter)))
     print('{}: loaded {} batches for train'.format(cfg.agent_token, len(train_loader)))
     val_loader = None if cfg.no_validation else get_agent_val_loader(cfg.agent_token)
 
@@ -230,7 +284,7 @@ async def main(cfg):
         if cfg.logging:
             print('current lr {:.5e}'.format(optimizer.param_groups[0]['lr']))
         statistics.add('train_begin_timestamp', time.time())
-        await train(consensus_specific, train_loader, model, criterion, optimizer, epoch, statistics)
+        await train(consensus_specific, train_loader, model, criterion, optimizer, epoch, statistics, steps_in_one_iter)
         lr_scheduler.step()
         statistics.add('train_end_timestamp', time.time())
 
@@ -261,7 +315,7 @@ async def main(cfg):
     consensus_specific.stop_consensus()
 
 
-async def train(consensus_specific, train_loader, model, criterion, optimizer, epoch, statistics):
+async def train(consensus_specific, train_loader, model, criterion, optimizer, epoch, statistics, steps_in_one_iter):
     """
         Run one train epoch
     """
@@ -277,6 +331,7 @@ async def train(consensus_specific, train_loader, model, criterion, optimizer, e
 
     start = time.time()
     end = time.time()
+    num_consensus = len(train_loader)//steps_in_one_iter+ bool(len(train_loader) % steps_in_one_iter)
 
     def should_send_telemetry(idx, total_batches):
         if consensus_specific.cfg.telemetry_freq_per_epoch <= 0:
@@ -304,35 +359,38 @@ async def train(consensus_specific, train_loader, model, criterion, optimizer, e
         loss.backward()
         optimizer.step()
 
-        # average model
-        await consensus_specific.run_averaging(model)
+        if (i+1) % steps_in_one_iter == 0 or (i+1) == len(train_loader):
+            # average model
+            #print('starting consensus')
+            await consensus_specific.run_averaging(model)
 
-        output = output.float()
-        loss = loss.float()
-        # measure accuracy and record loss
-        prec1 = accuracy(output.data, target)[0]
-        losses.update(loss.item(), input.size(0))
-        top1.update(prec1.item(), input.size(0))
+            output = output.float()
+            loss = loss.float()
+            # measure accuracy and record loss
+            prec1 = accuracy(output.data, target)[0]
+            losses.update(loss.item(), input.size(0))
+            top1.update(prec1.item(), input.size(0))
 
-        # measure elapsed time
-        batch_time.update(time.time() - end)
-        end = time.time()
-
-        if should_send_telemetry(i, len(train_loader)):
-            await consensus_specific.agent.send_telemetry(TelemetryModelParameters(
-                                                              consensus_specific.batch_counter,
-                                                              consensus_specific.dump_params(model)
-                                                          ))
-
-        if i % cfg.print_freq == 0:
-            if cfg.logging:
-                print('\rEpoch: [{0}][{1}/{2}]\t'
-                      'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                      'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
-                      'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                      'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
-                    epoch, i, len(train_loader), batch_time=batch_time,
-                    data_time=data_time, loss=losses, top1=top1), end='')
+            # measure elapsed time
+            batch_time.update(time.time() - end)
+            end = time.time()
+            j = (i+1) // steps_in_one_iter
+            #print(cfg.agent_token,':', j)
+            if should_send_telemetry(j, num_consensus):
+                #print('telemety')
+                await consensus_specific.agent.send_telemetry(TelemetryModelParameters(
+                                                                  j,
+                                                                  consensus_specific.dump_params(model)
+                                                              ))
+            if j % cfg.print_freq == 0:
+                if cfg.logging:
+                    print('\rEpoch: [{0}][{1}/{2}]\t'
+                          'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                          'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
+                          'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                          'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
+                        epoch, i, len(train_loader), batch_time=batch_time,
+                        data_time=data_time, loss=losses, top1=top1), end='')
     if cfg.logging:
         print('\nEpoch took {:.2f} s.'.format(end - start))
     statistics.add('train_precision', top1.avg)
@@ -392,7 +450,6 @@ def validate(cfg, val_loader, model, criterion):
 
     return top1.avg
 
-
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     """
     Save the training model
@@ -400,7 +457,6 @@ def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     if os.path.isfile(filename):
         os.replace(filename, filename + '.bak')
     torch.save(state, filename)
-
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
