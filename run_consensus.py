@@ -16,7 +16,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--world-size', '-n', type=int,
                     help='You should either specify both world-size and topology'
                          ' or use custom topology using topology-file option')
-parser.add_argument('--topology', choices=['mesh', 'star', 'ring', 'torus', 'expander'], type=str)
+parser.add_argument('--topology', choices=['mesh', 'star', 'ring', 'torus', 'expander', 'expander4'], type=str)
 parser.add_argument('--topology-file', type=str)
 parser.add_argument('--validation-agents', type=str, help='e.g. --validation-agents="0,3,6" or --validation-agents="*"')
 parser.add_argument('--do-resume', dest='do_resume', help='resume from checkpoint', action='store_true')
