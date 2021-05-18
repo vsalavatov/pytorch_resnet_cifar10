@@ -231,7 +231,7 @@ async def main(cfg):
 
     print('{}: Loading dataset...'.format(cfg.agent_token))
     train_loader, num_data = get_agent_train_loader(cfg.agent_token, cfg.batch_size)
-    steps_in_one_iter = num_data//500 #TODO
+    steps_in_one_iter = 1 #TODO
     print('{}: {} iters of consensus'.format(cfg.agent_token,
      len(train_loader)//steps_in_one_iter+ bool(len(train_loader) % steps_in_one_iter)))
     print('{}: loaded {} batches for train'.format(cfg.agent_token, len(train_loader)))
