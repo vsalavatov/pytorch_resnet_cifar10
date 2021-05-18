@@ -14,6 +14,7 @@ import pickle
 
 from consensus_simple.mixer import Mixer
 from consensus_simple.weighted_mixer import WeightedMixer
+from consensus_simple.gossip_mixer import GossipMixer
 from consensus_simple.utils import *
 from consensus_simple.agent import Agent
 from consensus_simple.statistic_collector import StatisticCollector
@@ -214,9 +215,11 @@ def main(args):
                                   args['weights'],
                                   args['consensus_lr_schedule'],
                                   args['consensus_lr'])
+        elif 'gossip_args' in args:
+            mixer = GossipMixer(topology, logger)
         else:
             mixer = Mixer(topology, logger)
-        logger.info('Mixer successfully prepared')
+        logger.info('{} successfully prepared'.format(mixer.__class__.__name__))
 
         global_statistic = StatisticCollector('global_statistic',
                                               logger=logger,
@@ -293,6 +296,17 @@ def main(args):
                 for agent_name, agent in network.items():
                     agents_params[agent_name] = agent.get_flatten_params()
                 agents_params = mixer.mix(agents_params, iteration=it)
+                for agent_name, agent in network.items():
+                    agent.load_flatten_params_to_model(agents_params[agent_name])
+        elif 'gossip_args' in args:
+            gossip_args = args['gossip_args']
+            if it % consensus_freqs == 0:
+                agents_params = {}
+                for agent_name, agent in network.items():
+                    agents_params[agent_name] = agent.get_flatten_params()
+                agents_params = mixer.mix(agents_params,
+                                          times=gossip_args['times'],
+                                          neighbors_num=gossip_args['neighbors_num'])
                 for agent_name, agent in network.items():
                     agent.load_flatten_params_to_model(agents_params[agent_name])
         else:
