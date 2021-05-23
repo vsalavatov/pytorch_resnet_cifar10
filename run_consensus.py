@@ -141,7 +141,7 @@ def run(args):
     master_thread = threading.Thread(target=run_task, args=(master_loop, master_task))
     master_thread.start()
 
-    time.sleep(2.0)  # let master initialize
+    time.sleep(5.0)  # let master initialize
 
     validation_agents = extract_validation_agents(args, total_agents)
 

@@ -74,7 +74,10 @@ def plot_loop(names, paths, title, save=None, param_dev=None):
             plt_param_dev.plot([b / telemetries_per_epoch for b in range(len(deviation))],
                                 deviation, label='max')
             try:
-                cv_pctls = param_dev_stats.crop('coef_of_var_percentiles')
+                try:
+                    cv_pctls = param_dev_stats.crop('abs_coef_of_var_percentiles')
+                except:
+                    cv_pctls = param_dev_stats.crop('coef_of_var_percentiles')
                 grouped_by_pcts = dict()
                 for record in cv_pctls:
                     for (pct, val) in record:
@@ -82,7 +85,7 @@ def plot_loop(names, paths, title, save=None, param_dev=None):
                             grouped_by_pcts[pct] = []
                         grouped_by_pcts[pct].append(val)
                 for pct, vals in reversed(list(grouped_by_pcts.items())):
-                    if pct < 75:
+                    if pct < 75 or 99 < pct:
                         continue
                     plt_param_dev.plot([b / telemetries_per_epoch for b in range(len(vals))],
                                        vals, label='percentile={}'.format(pct))

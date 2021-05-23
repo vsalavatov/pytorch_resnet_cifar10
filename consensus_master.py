@@ -51,13 +51,13 @@ class ResNet20TelemetryProcessor(TelemetryProcessor):
                                {agent: np.linalg.norm(deviation_params[agent], ord=np.inf) for agent in self.agents})
 
                 arr_params = np.array([params[agent] for agent in self.agents])
-                cvar = np.std(arr_params, axis=0) / np.mean(arr_params, axis=0)
-                max_cvar = np.max(cvar)
-                percentiles = (25, 50, 75, 95, 99)
-                cvar_pctls = np.percentile(cvar, (25, 50, 75, 95, 99))
+                cvar = np.std(arr_params, axis=0) / np.abs(np.mean(arr_params, axis=0))
+                mean_cvar = np.mean(cvar)
+                percentiles = (25, 50, 75, 80, 90, 95, 99, 99.9)
+                cvar_pctls = np.percentile(cvar, percentiles)
 
-                self.stats.add('coef_of_var', max_cvar)
-                self.stats.add('coef_of_var_percentiles', list(zip(percentiles, cvar_pctls)))
+                self.stats.add('abs_coef_of_var_percentiles', list(zip(percentiles, cvar_pctls)))
+                self.stats.add('abs_coef_of_var_mean', mean_cvar)
 
                 self.stats.dump_to_file()
                 del self.agent_params_by_iter[payload.batch_number]
