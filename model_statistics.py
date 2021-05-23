@@ -15,6 +15,9 @@ class ModelStatistics:
     def crop(self, key):
         return self.data[key]
 
+    def crop_or_default(self, key, default):
+        return self.data.get(key, default)
+
     def dump_to_file(self, path=None):
         if path is None:
             path = self.save_path
@@ -28,4 +31,7 @@ class ModelStatistics:
     @staticmethod
     def load_from_file(path):
         with open(path, 'rb') as f:
-            return pickle.loads(f.read())
+            stats = pickle.loads(f.read())
+            if stats.save_path is not None:
+                stats.save_path = path
+            return stats

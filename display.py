@@ -66,7 +66,7 @@ def plot_loop(names, paths, title, save=None, param_dev=None):
                 fmt['linewidth'] = 1.5
 
             plt_loss.plot(range(len(loss)), loss, label=label, **fmt)
-            plt_val_acc.plot(range(len(val_acc)), val_acc, label=label, **fmt)
+            plt_val_acc.plot(range(len(val_acc)), val_acc, label=label + ' ({})'.format(val_acc[-1]), **fmt)
 
         if param_dev_stats:
             telemetries_per_epoch = next(iter(param_dev_stats.crop('telemetries_per_epoch')[0].values()))
@@ -74,15 +74,19 @@ def plot_loop(names, paths, title, save=None, param_dev=None):
             plt_param_dev.plot([b / telemetries_per_epoch for b in range(len(deviation))],
                                 deviation, label='max')
             try:
-                cv_pctls = param_dev_stats.crop('coef_of_var_percentiles')
+                try:
+                    cv_pctls = param_dev_stats.crop('abs_coef_of_var_percentiles')
+                except:
+                    cv_pctls = param_dev_stats.crop('coef_of_var_percentiles')
                 grouped_by_pcts = dict()
                 for record in cv_pctls:
                     for (pct, val) in record:
                         if pct not in grouped_by_pcts.keys():
                             grouped_by_pcts[pct] = []
                         grouped_by_pcts[pct].append(val)
-                for pct, vals in reversed(grouped_by_pcts.items()):
-                    if pct < 75: continue
+                for pct, vals in reversed(list(grouped_by_pcts.items())):
+                    if pct < 75 or 99 < pct:
+                        continue
                     plt_param_dev.plot([b / telemetries_per_epoch for b in range(len(vals))],
                                        vals, label='percentile={}'.format(pct))
             except:

@@ -19,6 +19,7 @@ parser.add_argument('--world-size', '-n', type=int,
 parser.add_argument('--topology', choices=['mesh', 'star', 'ring', 'torus', 'expander'], type=str)
 parser.add_argument('--topology-file', type=str)
 parser.add_argument('--validation-agents', type=str, help='e.g. --validation-agents="0,3,6" or --validation-agents="*"')
+parser.add_argument('--do-resume', dest='do_resume', help='resume from checkpoint', action='store_true')
 
 parser.add_argument('--consensus-freq', dest='consensus_frequency', type=int, default=1,
                         help='freq>0 -> do averaging <freq> times per batch, '
@@ -123,10 +124,10 @@ def extract_validation_agents(args, total_agents):
 def run(args):
     topology, total_agents = make_topology(args)
 
-    def make_master_task(loop):
+    def make_master_task():  # actually returns a Future object
         telemetry_processor = consensus_master.ResNet20TelemetryProcessor(
             os.path.join(os.environ['CHECKPOINT_PATH'], 'telemetry.pickle'),
-            topology)
+            topology, resume=args.do_resume)
         master = ConsensusMaster(topology, '127.0.0.1', args.master_port,
                                  debug=True if args.debug else False,
                                  telemetry_processor=telemetry_processor)
@@ -138,11 +139,11 @@ def run(args):
         loop.close()
 
     master_loop = asyncio.new_event_loop()
-    master_task = make_master_task(master_loop)
+    master_task = make_master_task()
     master_thread = threading.Thread(target=run_task, args=(master_loop, master_task))
     master_thread.start()
 
-    time.sleep(2.0)  # let master initialize
+    time.sleep(5.0)  # let master initialize
 
     validation_agents = extract_validation_agents(args, total_agents)
 
@@ -160,7 +161,7 @@ def run(args):
                                   '--use-prepared-data',
                                   '--print-freq', f'{args.print_freq}'
                               ]
-
+                              + (['--do-resume'] if args.do_resume else [])
                               + (['--consensus-freq', f'{args.consensus_frequency}']
                                  if args.consensus_frequency is not None else [])
                               + (['--telemetry-freq-per-epoch', f'{args.telemetry_freq_per_epoch}']

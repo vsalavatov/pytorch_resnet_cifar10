@@ -86,13 +86,14 @@ def main():
             checkpoint = torch.load(args.resume)
             args.start_epoch = checkpoint['epoch']
             best_prec1 = checkpoint['best_prec1']
+            directory = os.path.dirname(args.resume)
             if 'statistics' in checkpoint.keys():
                 statistics = pickle.loads(checkpoint['statistics'])
-            elif os.path.isfile(os.path.join(args.resume, 'statistics.pickle')):
-                statistics = ModelStatistics.load_from_file(os.path.join(args.resume, 'statistics.pickle'))
+            elif os.path.isfile(os.path.join(directory, 'statistics.pickle')):
+                statistics = ModelStatistics.load_from_file(os.path.join(directory, 'statistics.pickle'))
             model.load_state_dict(checkpoint['state_dict'])
             print("=> loaded checkpoint '{}' (epoch {})"
-                  .format(args.evaluate, checkpoint['epoch']))
+                  .format(args.resume, checkpoint['epoch']))
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
 
@@ -149,10 +150,12 @@ def main():
         for param_group in optimizer.param_groups:
             param_group['lr'] = args.lr*0.1
 
-
     if args.evaluate:
         validate(val_loader, model, criterion)
         return
+
+    for epoch in range(0, args.start_epoch):
+        lr_scheduler.step()
 
     for epoch in range(args.start_epoch, args.epochs):
         # train for one epoch
