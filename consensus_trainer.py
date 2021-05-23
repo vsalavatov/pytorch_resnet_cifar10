@@ -187,12 +187,14 @@ class MomentumBufferManager:
                 if p.grad is not None:
                     self.optimizer.state[p]['momentum_buffer'] = momentum_buffer_list[curr_id].clone()
                     curr_id += 1
-async def main(cfg):
+
+
+async def main(cfg, ConsensusClass=ConsensusSpecific):
     best_prec1 = 0
     torch.manual_seed(239)
 
     print('Consensus agent: {}'.format(cfg.agent_token))
-    consensus_specific = ConsensusSpecific(cfg)
+    consensus_specific = ConsensusClass(cfg)
     consensus_specific.init_consensus()
 
     # Check the save_dir exists or not

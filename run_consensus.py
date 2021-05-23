@@ -7,6 +7,7 @@ import time
 
 sys.path.append('./distributed-learning/')
 from utils.consensus_tcp import ConsensusMaster
+from utils.gossip_tcp import GossipMaster, GossipAgent
 
 import consensus_trainer
 import consensus_master
@@ -42,6 +43,7 @@ parser.add_argument('--agent-start-port', default=11000, type=int)
 parser.add_argument('--debug', dest='debug', action='store_true')
 parser.add_argument('--print-freq', '-p', default=50, type=int,
                     metavar='N', help='print frequency (default: 50)')
+parser.add_argument('--gossip', dest='use_gossip', action='store_true', help='use gossip instead of consensus')
 
 
 def make_topology(args):
@@ -121,6 +123,15 @@ def extract_validation_agents(args, total_agents):
         raise e
 
 
+class GossipSpecific(consensus_trainer.ConsensusSpecific):
+    def init_consensus(self):
+        self.agent = GossipAgent(self.cfg.agent_token, self.cfg.agent_host, self.cfg.agent_port,
+                                 self.cfg.master_host, self.cfg.master_port,
+                                 debug=True if self.cfg.debug else False)
+        self.agent_serve_task = asyncio.create_task(self.agent.serve_forever())
+        print('{}: Created serving task'.format(self.cfg.agent_token))
+
+
 def run(args):
     topology, total_agents = make_topology(args)
 
@@ -128,7 +139,8 @@ def run(args):
         telemetry_processor = consensus_master.ResNet20TelemetryProcessor(
             os.path.join(os.environ['CHECKPOINT_PATH'], 'telemetry.pickle'),
             topology, resume=args.do_resume)
-        master = ConsensusMaster(topology, '127.0.0.1', args.master_port,
+        master_class = GossipMaster if args.use_gossip else ConsensusMaster
+        master = master_class(topology, '127.0.0.1', args.master_port,
                                  debug=True if args.debug else False,
                                  telemetry_processor=telemetry_processor)
         return master.serve_forever()
@@ -180,7 +192,11 @@ def run(args):
                               + ([] if token in validation_agents else ['--no-validation'])
                               )
         loop = asyncio.new_event_loop()
-        thread = threading.Thread(target=run_task, args=(loop, consensus_trainer.main(agent_args)))
+        thread = threading.Thread(target=run_task,
+                                  args=(loop, consensus_trainer.main(agent_args,
+                                                                     GossipSpecific if args.use_gossip else
+                                                                     consensus_trainer.ConsensusSpecific
+                                                                     )))
         thread.start()
         agent_threads.append(thread)
 
@@ -188,6 +204,7 @@ def run(args):
         t.join()
     master_loop.call_soon_threadsafe(master_loop.stop)
     master_thread.join()
+
 
 if __name__ == '__main__':
     args = parser.parse_args()
