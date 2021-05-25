@@ -9,7 +9,7 @@ import pickle
 import sys
 import time
 import numpy as np
-import resnet
+from models import resnet
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
@@ -23,17 +23,12 @@ from model_statistics import ModelStatistics
 from utils.consensus_tcp import ConsensusAgent
 from prepare_agent_datasets import get_agent_train_loader, get_agent_val_loader
 from consensus_master import TelemetryModelParameters, TelemetryAgentGeneralInfo
-
-model_names = sorted(name for name in resnet.__dict__
-                     if name.islower() and not name.startswith("__")
-                     and name.startswith("resnet")
-                     and callable(resnet.__dict__[name]))
+from models import get_model, model_names
 
 
 def make_config_parser():
     parser = argparse.ArgumentParser(description='Proper ResNets for CIFAR10 in pytorch')
-    parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet20',
-                        choices=model_names,
+    parser.add_argument('--net', default='resnet20', choices=model_names,
                         help='model architecture: ' + ' | '.join(model_names) +
                              ' (default: resnet20)')
 
@@ -201,7 +196,7 @@ async def main(cfg):
     if not os.path.exists(cfg.save_dir):
         os.makedirs(cfg.save_dir)
 
-    model = torch.nn.DataParallel(resnet.__dict__[cfg.arch]())
+    model = torch.nn.DataParallel(get_model(cfg.net))
     model.cuda()
     print('{}: Created model'.format(cfg.agent_token))
 
@@ -261,14 +256,14 @@ async def main(cfg):
 
     lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_schedule)
 
-    if cfg.arch != 'resnet20':
-        print('This code was not intended to be used on resnets other than resnet20')
+    #if cfg.arch != 'resnet20':
+    #    print('This code was not intended to be used on resnets other than resnet20')
 
-    if cfg.arch in ['resnet1202', 'resnet110']:
+    #if cfg.arch in ['resnet1202', 'resnet110']:
         # for resnet1202 original paper uses lr=0.01 for first 400 minibatches for warm-up
         # then switch back. In this setup it will correspond for first epoch.
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = cfg.lr * 0.1
+    #    for param_group in optimizer.param_groups:
+    #        param_group['lr'] = cfg.lr * 0.1
 
     if cfg.evaluate:
         validate(cfg, val_loader, model, criterion)

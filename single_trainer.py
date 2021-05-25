@@ -15,14 +15,14 @@ import torch.optim
 import torch.utils.data
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
-import resnet
+from models import resnet
 
 import pickle
 
 from model_statistics import ModelStatistics
 
 model_names = sorted(name for name in resnet.__dict__
-    if name.islower() and not name.startswith("__")
+                     if name.islower() and not name.startswith("__")
                      and name.startswith("resnet")
                      and callable(resnet.__dict__[name]))
 

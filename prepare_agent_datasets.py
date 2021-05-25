@@ -10,19 +10,33 @@ import argparse
 normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                  std=[0.229, 0.224, 0.225])
 
-__train_dataset = datasets.CIFAR10(root='./data', train=True, transform=transforms.Compose([
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomCrop(32, 4),
-        transforms.ToTensor(),
-        normalize,
-    ]), download=True)
+__train_dataset = None
+__val_dataset = None
 
-__val_dataset = datasets.CIFAR10(root='./data', train=False, download=True, transform=transforms.Compose([
-        transforms.ToTensor(),
-        normalize,
-    ]))
+def load_dataset(name):
+    if name == 'cifar10':
+        __train_dataset = datasets.CIFAR10(root='./data', train=True, transform=transforms.Compose([
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomCrop(32, 4),
+                transforms.ToTensor(),
+                normalize,
+            ]), download=True)
 
-
+        __val_dataset = datasets.CIFAR10(root='./data', train=False, download=True, transform=transforms.Compose([
+                transforms.ToTensor(),
+                normalize,
+            ]))
+    elif name == 'fashion_mnist':
+        __train_dataset = datasets.FashionMNIST(root='./data', train=True, transform=transforms.Compose([
+            transforms.RandomHorizontalFlip(),
+                transforms.RandomCrop(32, 4),
+                transforms.ToTensor(),
+                normalize,
+            ]), download=True)
+        __val_dataset = datasets.FashionMNIST(root='./data', train=False, download=True, transform=transforms.Compose([
+            transforms.ToTensor(),
+            normalize,
+        ]))
 def get_train_dataset():
     return __train_dataset
 
@@ -75,6 +89,8 @@ if __name__ == '__main__':
     parser.add_argument('--agents-count', '-n', required=True, type=int)
     parser.add_argument('--sizes', nargs='*', type=int)
     parser.add_argument('--nodes', nargs='*', type=int)
+    parser.add_argument('--name', choices=['cifar10', 'fashion_mnist'], type=str)
 
     args = parser.parse_args()
+    load_dataset(args.name)
     prepare_agent_datasets(args.agents_count, args.sizes, args.nodes)
