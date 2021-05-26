@@ -1,7 +1,9 @@
-from resnet import resnet20, resnet32, resnet44
-from fashion_cnn import fashion_cnn
+from models.resnet import resnet20, resnet32, resnet44
+from models.fashion_cnn import fashion_cnn
 
 model_names = ['resnet20', 'resnet32', 'resnet44', 'fashion_cnn']
+
+
 def get_model(name):
     if name == 'resnet20':
         return resnet20()

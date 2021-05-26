@@ -9,7 +9,6 @@ import pickle
 import sys
 import time
 import numpy as np
-from models import resnet
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn

@@ -20,7 +20,7 @@ parser.add_argument('--topology', choices=['mesh', 'star', 'ring', 'torus', 'exp
 parser.add_argument('--topology-file', type=str)
 parser.add_argument('--validation-agents', type=str, help='e.g. --validation-agents="0,3,6" or --validation-agents="*"')
 parser.add_argument('--do-resume', dest='do_resume', help='resume from checkpoint', action='store_true')
-parser.add_argument('--net', type='str')
+parser.add_argument('--net', type=str)
 parser.add_argument('--consensus-freq', dest='consensus_frequency', type=int, default=1,
                         help='freq>0 -> do averaging <freq> times per batch, '
                              'freq<0 -> do averaging once per (-freq) batches')
