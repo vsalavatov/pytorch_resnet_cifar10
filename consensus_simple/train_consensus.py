@@ -14,6 +14,7 @@ import pickle
 
 from consensus_simple.mixer import Mixer
 from consensus_simple.weighted_mixer import WeightedMixer
+from consensus_simple.gossip_mixer import GossipMixer
 from consensus_simple.utils import *
 from consensus_simple.agent import Agent
 from consensus_simple.statistic_collector import StatisticCollector
@@ -23,16 +24,38 @@ np.random.seed(SEED)
 torch.manual_seed(SEED)
 
 
-def get_cifar10_train_loaders(args):
-    transform_train = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010)),
-    ])
-    trainset = torchvision.datasets.CIFAR10(root=args['dataset_dir'],
-                                            train=True, download=True,
-                                            transform=transform_train)
+def get_train_loaders(args):
+    dataset_name = args['dataset_name']
+    if dataset_name == 'cifar10':
+        transform_train = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010)),
+        ])
+        trainset = torchvision.datasets.CIFAR10(root=args['dataset_dir'],
+                                                train=True, download=True,
+                                                transform=transform_train)
+    elif dataset_name == 'cifar100':
+        transform_train = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.5071, 0.4867, 0.4408), std=(0.2675, 0.2565, 0.2761)),
+        ])
+        trainset = torchvision.datasets.CIFAR100(root=args['dataset_dir'],
+                                                 train=True, download=True,
+                                                 transform=transform_train)
+    elif dataset_name == 'FashionMNIST':
+        transform_train = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.28604), std=(0.35302)),
+        ])
+        trainset = torchvision.datasets.FashionMNIST(root=args['dataset_dir'],
+                                                     train=True, download=True,
+                                                     transform=transform_train)
+    else:
+        raise NotImplementedError
 
     agent_list = []
     dataset_sizes = []
@@ -53,27 +76,57 @@ def get_cifar10_train_loaders(args):
     return train_loaders
 
 
-def get_cifar10_test_loader(args):
-    transform_test = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010)),
-    ])
+def get_test_loader(args):
+    dataset_name = args['dataset_name']
+    if dataset_name == 'cifar10':
+        transform_test = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010)),
+        ])
 
-    testset = torchvision.datasets.CIFAR10(root=args['dataset_dir'],
-                                           train=False, download=False,
-                                           transform=transform_test)
+        testset = torchvision.datasets.CIFAR10(root=args['dataset_dir'],
+                                               train=False, download=False,
+                                               transform=transform_test)
+    elif dataset_name == 'cifar100':
+        transform_test = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.5071, 0.4867, 0.4408), std=(0.2675, 0.2565, 0.2761)),
+        ])
+
+        testset = torchvision.datasets.CIFAR100(root=args['dataset_dir'],
+                                                train=False, download=False,
+                                                transform=transform_test)
+    elif dataset_name == 'FashionMNIST':
+        transform_test = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.28604), std=(0.35302)),
+        ])
+
+        testset = torchvision.datasets.FashionMNIST(root=args['dataset_dir'],
+                                                    train=False, download=True,
+                                                    transform=transform_test)
+    else:
+        raise NotImplementedError
 
     return torch.utils.data.DataLoader(testset, batch_size=args['test_batch_size'], shuffle=False, num_workers=2)
 
 
 def get_resnet20_models(args):
     topology = args['topology']
+    dataset_name = args['dataset_name']
+    if dataset_name in ['cifar10', 'FashionMNIST']:
+        num_classes = 10
+    elif dataset_name == 'cifar100':
+        num_classes = 100
+    else:
+        raise NotImplementedError
+
     models = {}
 
     main_state_dict = None
 
     for agent in topology:
-        models[agent] = args['model']()
+        models[agent] = args['model'](num_classes)
         if args['equalize_start_params']:
             if main_state_dict is None:
                 main_state_dict = models[agent].state_dict()
@@ -91,16 +144,25 @@ def get_criterion():
 
 
 def get_optimizer(args, model):
-    return torch.optim.SGD(model.parameters(),
-                           lr=args['lr'],
-                           momentum=args['momentum'],
-                           weight_decay=args['weight_decay'])
+    dataset_name = args['dataset_name']
+    if dataset_name in ['cifar10', 'cifar100']:
+        optimizer = torch.optim.SGD(model.parameters(),
+                                    lr=args['lr'],
+                                    momentum=args['momentum'],
+                                    weight_decay=args['weight_decay'])
+    elif dataset_name == 'FashionMNIST':
+        optimizer = torch.optim.Adam(model.parameters(),
+                                     lr=args['lr'])
+    else:
+        raise NotImplementedError
+    return optimizer
 
 
 def get_lr_scheduler(optimizer, lr_schedule, weight=None):
     if weight:
         def schedule(x):
             return weight * lr_schedule(x)
+
         return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=schedule)
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_schedule)
 
@@ -134,8 +196,6 @@ def main(args):
         'train_batch_size',
         'test_batch_size',
         'lr',
-        'momentum',
-        'weight_decay',
         'lr_schedule',
         'topology',
         'n_agents',
@@ -179,9 +239,11 @@ def main(args):
                                   args['weights'],
                                   args['consensus_lr_schedule'],
                                   args['consensus_lr'])
+        elif 'gossip_args' in args:
+            mixer = GossipMixer(topology, logger)
         else:
             mixer = Mixer(topology, logger)
-        logger.info('Mixer successfully prepared')
+        logger.info('{} successfully prepared'.format(mixer.__class__.__name__))
 
         global_statistic = StatisticCollector('global_statistic',
                                               logger=logger,
@@ -190,10 +252,10 @@ def main(args):
         start_iteration = 1
 
     # preparing
-    test_loader = get_cifar10_test_loader(args)
+    test_loader = get_test_loader(args)
     logger.info('Test loader with length {} successfully prepared'.format(len(test_loader)))
 
-    train_loaders = get_cifar10_train_loaders(args)
+    train_loaders = get_train_loaders(args)
     logger.info('Train loaders successfully prepared')
 
     models = get_resnet20_models(args)
@@ -258,6 +320,17 @@ def main(args):
                 for agent_name, agent in network.items():
                     agents_params[agent_name] = agent.get_flatten_params()
                 agents_params = mixer.mix(agents_params, iteration=it)
+                for agent_name, agent in network.items():
+                    agent.load_flatten_params_to_model(agents_params[agent_name])
+        elif 'gossip_args' in args:
+            gossip_args = args['gossip_args']
+            if it % consensus_freqs == 0:
+                agents_params = {}
+                for agent_name, agent in network.items():
+                    agents_params[agent_name] = agent.get_flatten_params()
+                agents_params = mixer.mix(agents_params,
+                                          times=gossip_args['times'],
+                                          neighbors_num=gossip_args['neighbors_num'])
                 for agent_name, agent in network.items():
                     agent.load_flatten_params_to_model(agents_params[agent_name])
         else:
