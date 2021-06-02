@@ -39,7 +39,7 @@ def load_dataset(name):
         ]), download=True)
         __val_dataset = datasets.FashionMNIST(root='./data', train=False, download=True, transform=transforms.Compose([
             transforms.ToTensor(),
-            normalize,
+            normalize_1d,
         ]))
     else:
         raise ValueError('This dataset not implemented')
